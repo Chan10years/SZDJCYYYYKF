@@ -59,13 +59,6 @@
   --font-mono: var(--font-mono);
 }
 
-/* 旧 token 兼容别名：本批次未改造页面继续工作，后续批次逐步迁移后移除 */
-@theme inline {
-  --color-app-accent: var(--app-user);
-  --color-app-info: var(--app-ai);
-  --color-app-danger: var(--app-risk);
-}
-
 html {
   background: var(--app-bg);
 }
