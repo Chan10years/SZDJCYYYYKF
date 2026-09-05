@@ -114,6 +114,8 @@ export const ScenarioSchema = z.object({
   purpose: z.string(),
   verified: z.boolean(),
   source: ScenarioSourceSchema,
+  /** 可选：真实地图底图（已人工核验的 marker 编号 / 阵营色由图片承担）。Fixture 不提供。 */
+  mapBase: z.string().optional(),
   situation: z.object({
     phase: z.string(),
     time: z.string(),

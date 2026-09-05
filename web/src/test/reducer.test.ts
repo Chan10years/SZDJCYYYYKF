@@ -4,7 +4,7 @@ import {
   initialState,
   type ExperienceState,
 } from "@/domain/experienceReducer";
-import { fixtureScenarios } from "@/data/scenarios.fixture";
+import { scenarios } from "@/data/scenarios";
 import type { CallId, ChallengeOutput } from "@/domain/types";
 
 const challenge: ChallengeOutput = {
@@ -126,7 +126,8 @@ describe("experienceReducer", () => {
     const s = experienceReducer(reviewState, { type: "COMPLETE_ROUND" });
     expect(s.completedRounds).toHaveLength(1);
     const round = s.completedRounds[0];
-    expect(round.scenarioId).toBe(fixtureScenarios[0].id);
+    expect(round.scenarioId).toBe(scenarios[0].id);
+    expect(round.professionalCall).toBe(scenarios[0].professional.call);
     expect(round.initialCall).toBe("A");
     expect(round.aiStance).toBe("challenge");
     expect(round.aiAlternativeCall).toBe("B");

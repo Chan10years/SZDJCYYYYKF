@@ -66,9 +66,23 @@ export function TacticalPreview({
             </pattern>
           </defs>
 
-          {/* 地图底图：中性战术网格，不含布局资产时仍可读 */}
-          <rect width="100" height="100" fill="#171a20" />
-          <rect width="100" height="100" fill={`url(#${gridId})`} />
+          {/* 地图底图：真实底图（含已人工核验的编号/阵营标记）或中性战术网格。
+              底图负责底层视觉；routes/zones 由 renderer 叠加，不重复绘制编号。 */}
+          {scenario.mapBase ? (
+            <image
+              href={scenario.mapBase}
+              x={0}
+              y={0}
+              width={100}
+              height={100}
+              preserveAspectRatio="xMidYMid slice"
+            />
+          ) : (
+            <>
+              <rect width="100" height="100" fill="#171a20" />
+              <rect width="100" height="100" fill={`url(#${gridId})`} />
+            </>
+          )}
 
           {/* 空间区域 */}
           {spec.zones.map((zone, i) => {
