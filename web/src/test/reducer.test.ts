@@ -5,7 +5,7 @@ import {
   type ExperienceState,
 } from "@/domain/experienceReducer";
 import { fixtureScenarios } from "@/data/scenarios.fixture";
-import type { ChallengeOutput } from "@/domain/types";
+import type { CallId, ChallengeOutput } from "@/domain/types";
 
 const challenge: ChallengeOutput = {
   stance: "challenge",
@@ -156,6 +156,34 @@ describe("experienceReducer", () => {
     expect(s.completedRounds).toHaveLength(3);
     expect(s.phase).toBe("summary");
     expect(s.scenarioIndex).toBeLessThanOrEqual(2);
+  });
+
+  it("drives a full round loop R1 -> R2 -> R3 -> summary through every phase", () => {
+    let s: ExperienceState = initialState;
+    const calls: CallId[] = ["A", "B", "C"];
+    for (let round = 0; round < 3; round += 1) {
+      s = experienceReducer(s, { type: "START" });
+      expect(s.phase).toBe("situation");
+      s = experienceReducer(s, { type: "BEGIN_DECISION" });
+      s = experienceReducer(s, { type: "SET_CALL", call: calls[round] });
+      s = experienceReducer(s, {
+        type: "TOGGLE_REASON",
+        reason: "known_position",
+      });
+      s = experienceReducer(s, { type: "REQUEST_CHALLENGE" });
+      expect(s.phase).toBe("challenge");
+      s = experienceReducer(s, { type: "CHALLENGE_RESOLVED", challenge });
+      s = experienceReducer(s, { type: "KEEP_INITIAL" });
+      expect(s.phase).toBe("preview");
+      s = experienceReducer(s, { type: "SHOW_REFERENCE" });
+      expect(s.phase).toBe("reference");
+      s = experienceReducer(s, { type: "SHOW_REVIEW" });
+      expect(s.phase).toBe("review");
+      s = experienceReducer(s, { type: "COMPLETE_ROUND" });
+    }
+    expect(s.completedRounds).toHaveLength(3);
+    expect(s.phase).toBe("summary");
+    expect(s.scenarioIndex).toBe(2);
   });
 
   it("blocks forward actions from the wrong phase", () => {

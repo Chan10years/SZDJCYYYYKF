@@ -11,6 +11,8 @@ import { SituationScreen } from "./SituationScreen";
 import { DecisionScreen } from "./DecisionScreen";
 import { ChallengeScreen } from "./ChallengeScreen";
 import { TacticalPreviewScreen } from "./TacticalPreviewScreen";
+import { ProfessionalReferenceScreen } from "./ProfessionalReferenceScreen";
+import { RoundReviewScreen } from "./RoundReviewScreen";
 
 function NotYet({ phase }: { phase: ExperiencePhase }) {
   return (
@@ -117,6 +119,29 @@ export function ExperienceShell() {
           scenario={scenario}
           finalCall={state.finalCall}
           onNext={() => dispatch({ type: "SHOW_REFERENCE" })}
+        />
+      ) : (
+        <NotYet phase={state.phase} />
+      );
+    case "reference":
+      return (
+        <ProfessionalReferenceScreen
+          scenario={scenario}
+          onNext={() => dispatch({ type: "SHOW_REVIEW" })}
+        />
+      );
+    case "review":
+      return state.finalCall !== null && state.challenge !== null ? (
+        <RoundReviewScreen
+          scenario={scenario}
+          finalCall={state.finalCall}
+          challenge={state.challenge}
+          primaryLabel={
+            state.scenarioIndex === scenarios.length - 1
+              ? "查看连接报告"
+              : "下一局"
+          }
+          onComplete={() => dispatch({ type: "COMPLETE_ROUND" })}
         />
       ) : (
         <NotYet phase={state.phase} />
