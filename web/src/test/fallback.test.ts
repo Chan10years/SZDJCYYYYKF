@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildFallbackChallenge, buildFallbackReport } from "@/domain/fallback";
 import { calculateConnectionStats } from "@/domain/stats";
 import { fixtureScenarios } from "@/data/scenarios.fixture";
-import type { ReasonId, RoundResult } from "@/domain/types";
+import type { CallId, ReasonId, RoundResult } from "@/domain/types";
 
 const scenario = fixtureScenarios[0];
 
@@ -110,4 +110,94 @@ describe("buildFallbackReport", () => {
     expect(text).not.toContain("你就是");
     expect(text).not.toContain("人格");
   });
+
+  it("phrases accurately when every disagreement was accepted", () => {
+    const allAccept = [
+      makeAccepted("A", "B"),
+      makeAccepted("B", "C"),
+      makeAccepted("C", "A"),
+    ];
+    const text = buildFallbackReport(
+      allAccept,
+      calculateConnectionStats(allAccept),
+    );
+    expect(text).toContain("3 次 AI 分歧中采纳了 3 次、坚持了 0 次");
+    expect(text).toContain("均采纳了第二意见");
+    expect(text).not.toContain("选择性接受");
+  });
+
+  it("phrases accurately when every disagreement was persisted", () => {
+    const allPersist = [
+      makePersisted("A", "B"),
+      makePersisted("B", "C"),
+      makePersisted("C", "A"),
+    ];
+    const text = buildFallbackReport(
+      allPersist,
+      calculateConnectionStats(allPersist),
+    );
+    expect(text).toContain("3 次 AI 分歧中采纳了 0 次、坚持了 3 次");
+    expect(text).toContain("均坚持了自己的初始判断");
+    expect(text).not.toContain("选择性接受");
+  });
+
+  it("phrases accurately when there was no disagreement", () => {
+    const noDisagreement = [
+      makeAgreeing("A"),
+      makeAgreeing("B"),
+      makeAgreeing("C"),
+    ];
+    const text = buildFallbackReport(
+      noDisagreement,
+      calculateConnectionStats(noDisagreement),
+    );
+    expect(text).toContain("三局均未出现 AI 分歧");
+    expect(text).not.toContain("采纳了 0 次");
+  });
 });
+
+function disagreementRound(initialCall: RoundResult["initialCall"]) {
+  return {
+    scenarioId: "fixture-lite-3",
+    reasonIds: ["resource_preservation"] as ReasonId[],
+    aiStance: "challenge" as const,
+    aiResponseSource: "live" as const,
+    professionalCall: "C" as const,
+    completedAt: "2026-09-05T12:00:00.000Z",
+    initialCall,
+  };
+}
+
+function makeAccepted(
+  initialCall: CallId,
+  alternativeCall: CallId,
+): RoundResult {
+  return {
+    ...disagreementRound(initialCall),
+    aiAlternativeCall: alternativeCall,
+    finalCall: alternativeCall,
+    changedAfterAI: true,
+  };
+}
+
+function makePersisted(
+  initialCall: CallId,
+  alternativeCall: CallId,
+): RoundResult {
+  return {
+    ...disagreementRound(initialCall),
+    aiAlternativeCall: alternativeCall,
+    finalCall: initialCall,
+    changedAfterAI: false,
+  };
+}
+
+function makeAgreeing(initialCall: CallId): RoundResult {
+  return {
+    ...disagreementRound(initialCall),
+    aiAlternativeCall: null,
+    finalCall: initialCall,
+    changedAfterAI: false,
+    aiStance: "agree",
+  };
+}

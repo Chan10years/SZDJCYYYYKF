@@ -40,7 +40,8 @@ export function ExperienceShell() {
   }, []);
 
   useEffect(() => {
-    if (hydrated) saveSession(state);
+    // Reset 后回到 intro，不再把空白 Intro session 写回 localStorage，保证 reset 真正清空。
+    if (hydrated && state.phase !== "intro") saveSession(state);
   }, [hydrated, state]);
 
   // phase 变化时重置“挑战请求已发起”标记，避免一次进入阶段内重复请求。

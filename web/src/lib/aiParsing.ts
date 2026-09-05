@@ -77,3 +77,27 @@ export function parseReportContent(
   const result = ReportContentSchema.safeParse(json);
   return result.success ? result.data : null;
 }
+
+/**
+ * 违反项目边界的观察措辞。命中任一即判定违规，降级到 deterministic fallback。
+ * 覆盖：把职业路径/结果表述为对错、人格/性格类诊断、心理学式定性。
+ */
+const FORBIDDEN_OBSERVATION_PHRASES = [
+  "正确答案",
+  "答错",
+  "必然",
+  "唯一最优",
+  "你就是",
+  "你属于",
+  "人格",
+  "性格",
+  "更正确",
+  "正确率",
+];
+
+/** 程序侧最小保护：live observation 不得越过项目边界措辞。 */
+export function isValidReportObservation(observation: string): boolean {
+  return !FORBIDDEN_OBSERVATION_PHRASES.some((phrase) =>
+    observation.includes(phrase),
+  );
+}

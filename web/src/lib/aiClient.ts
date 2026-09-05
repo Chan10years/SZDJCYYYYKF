@@ -25,9 +25,8 @@ export async function requestChatCompletion(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), args.timeoutMs);
 
-  let response: Response;
   try {
-    response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -46,20 +45,21 @@ export async function requestChatCompletion(
       // 路由处理程序内默认动态；明确关闭 fetch 缓存以免复用 LLM 响应
       cache: "no-store",
     });
+
+    if (!response.ok) {
+      throw new Error(`AI request failed with status ${response.status}`);
+    }
+
+    // timeout 覆盖完整响应读取过程：body 卡住时 abort 同样生效，触发调用方 fallback。
+    const data: unknown = await response.json();
+    const content = extractContent(data);
+    if (content === null) {
+      throw new Error("AI response missing content");
+    }
+    return content;
   } finally {
     clearTimeout(timer);
   }
-
-  if (!response.ok) {
-    throw new Error(`AI request failed with status ${response.status}`);
-  }
-
-  const data: unknown = await response.json();
-  const content = extractContent(data);
-  if (content === null) {
-    throw new Error("AI response missing content");
-  }
-  return content;
 }
 
 function extractContent(data: unknown): string | null {

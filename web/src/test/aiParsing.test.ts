@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isValidReportObservation,
   parseChallengeContent,
   parseReportContent,
   REPORT_OBSERVATION_MAX,
@@ -82,5 +83,23 @@ describe("parseReportContent", () => {
   it("rejects an observation over the max length", () => {
     const raw = JSON.stringify({ observation: "a".repeat(REPORT_OBSERVATION_MAX + 1) });
     expect(parseReportContent(raw)).toBeNull();
+  });
+});
+
+describe("isValidReportObservation", () => {
+  it("accepts a boundary-compliant observation", () => {
+    const text = "当前样本呈现的是选择性接受第二意见，且仅反映本次体验。";
+    expect(isValidReportObservation(text)).toBe(true);
+  });
+
+  it("rejects personality diagnosis wording", () => {
+    expect(isValidReportObservation("你是一个抗拒权威的人格")).toBe(false);
+    expect(isValidReportObservation("你就是容易受他人影响")).toBe(false);
+  });
+
+  it("rejects treating professional paths as right or wrong answers", () => {
+    expect(isValidReportObservation("你选对了正确答案")).toBe(false);
+    expect(isValidReportObservation("你的判断是唯一最优")).toBe(false);
+    expect(isValidReportObservation("你答错了")).toBe(false);
   });
 });

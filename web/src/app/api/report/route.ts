@@ -2,7 +2,10 @@ import { z } from "zod";
 import { RoundResultSchema } from "@/domain/schemas";
 import { calculateConnectionStats } from "@/domain/stats";
 import { buildFallbackReport } from "@/domain/fallback";
-import { parseReportContent } from "@/lib/aiParsing";
+import {
+  isValidReportObservation,
+  parseReportContent,
+} from "@/lib/aiParsing";
 import { requestChatCompletion } from "@/lib/aiClient";
 
 export const dynamic = "force-dynamic";
@@ -66,7 +69,11 @@ export async function POST(request: Request) {
       maxTokens: 512,
     });
     const parsedContent = parseReportContent(content);
-    if (parsedContent === null) {
+    // JSON/schema 通过后仍需程序侧边界检查：违规措辞不允许作为 live observation。
+    if (
+      parsedContent === null ||
+      !isValidReportObservation(parsedContent.observation)
+    ) {
       return Response.json(
         { observation: buildFallbackReport(rounds, stats), source: "fallback" },
         { status: 200 },
