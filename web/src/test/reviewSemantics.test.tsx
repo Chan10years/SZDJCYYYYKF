@@ -1,0 +1,66 @@
+import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { RoundReviewScreen } from "@/components/experience/RoundReviewScreen";
+import { ProfessionalReferenceScreen } from "@/components/experience/ProfessionalReferenceScreen";
+import { fixtureScenarios } from "@/data/scenarios.fixture";
+import type { ChallengeOutput } from "@/domain/types";
+
+const scenario = fixtureScenarios[0];
+const challenge: ChallengeOutput = {
+  stance: "challenge",
+  acknowledge: "承接",
+  blindspot: "针对初始 Call 的盲点。",
+  question: "针对初始 Call 的反问。",
+  alternativeCall: "B",
+  source: "fallback",
+};
+
+describe("RoundReviewScreen — review semantics", () => {
+  it("attaches the AI challenge as risk only when the final call is kept", () => {
+    render(
+      <RoundReviewScreen
+        scenario={scenario}
+        initialCall="A"
+        finalCall="A"
+        challenge={challenge}
+        primaryLabel="下一局"
+        onComplete={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/可能风险/)).toBeInTheDocument();
+    expect(screen.getByText(/针对初始 Call 的盲点/)).toBeInTheDocument();
+    expect(screen.getByText(/需要再想一次/)).toBeInTheDocument();
+    expect(screen.queryByText(/已调整方案/)).not.toBeInTheDocument();
+  });
+
+  it("never shows the old Call's challenge as the final Call's risk after a change", () => {
+    render(
+      <RoundReviewScreen
+        scenario={scenario}
+        initialCall="A"
+        finalCall="B"
+        challenge={challenge}
+        primaryLabel="下一局"
+        onComplete={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/你的最终方案 · Call B/)).toBeInTheDocument();
+    expect(screen.queryByText(/可能风险/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/需要再想一次/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/针对初始 Call 的盲点/)).not.toBeInTheDocument();
+    expect(screen.getByText(/已调整方案/)).toBeInTheDocument();
+  });
+});
+
+describe("ProfessionalReferenceScreen — practice fixture copy", () => {
+  it("uses practice wording and never claims real-match status when unverified", () => {
+    render(<ProfessionalReferenceScreen scenario={scenario} onNext={vi.fn()} />);
+    expect(screen.queryByText("真实职业路径")).not.toBeInTheDocument();
+    expect(screen.queryByText(/历史上真实发生/)).not.toBeInTheDocument();
+    expect(screen.getByText(/练习路径参考/)).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/尚未进行正式比赛核验/).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/不是唯一正确答案/).length).toBeGreaterThan(0);
+  });
+});

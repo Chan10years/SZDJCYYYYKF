@@ -131,9 +131,12 @@ export function ExperienceShell() {
         />
       );
     case "review":
-      return state.finalCall !== null && state.challenge !== null ? (
+      return state.finalCall !== null &&
+        state.initialCall !== null &&
+        state.challenge !== null ? (
         <RoundReviewScreen
           scenario={scenario}
+          initialCall={state.initialCall}
           finalCall={state.finalCall}
           challenge={state.challenge}
           primaryLabel={

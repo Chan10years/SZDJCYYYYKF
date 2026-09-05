@@ -15,16 +15,18 @@ export function ProfessionalReferenceScreen({
   const [videoFailed, setVideoFailed] = useState(false);
   const pro = scenario.professional;
   const showVideo = !!pro.clipSrc && !videoFailed;
+  const verified = scenario.verified;
+  // 未核验（Practice Fixture）时，不得使用“真实比赛”“历史上真实发生”等措辞。
+  const title = verified ? "真实职业路径" : "练习路径参考";
+  const subtitle = verified
+    ? "历史上真实发生的一条职业路径，仅供参考"
+    : "Practice Reference · 尚未进行正式比赛核验";
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-6">
       <header className="border-b border-app-line py-4">
-        <h1 className="text-[15px] font-medium text-app-text">
-          真实职业路径
-        </h1>
-        <p className="mt-0.5 text-[13px] text-app-muted">
-          历史上真实发生的一条职业路径，仅供参考
-        </p>
+        <h1 className="text-[15px] font-medium text-app-text">{title}</h1>
+        <p className="mt-0.5 text-[13px] text-app-muted">{subtitle}</p>
       </header>
 
       <div className="flex flex-1 flex-col gap-6 py-6">
@@ -74,8 +76,9 @@ export function ProfessionalReferenceScreen({
         </section>
 
         <p className="rounded-lg border border-app-line bg-app-surface px-4 py-3 text-[13px] leading-relaxed text-app-muted">
-          这是历史上真实发生的一条职业路径，{" "}
-          <span className="text-app-text">不是唯一正确答案</span>。
+          {verified
+            ? "这是历史上真实发生的一条职业路径，不是唯一正确答案。"
+            : "这是一条练习参考路径，尚未进行正式比赛核验，不是唯一正确答案。"}
         </p>
       </div>
 
