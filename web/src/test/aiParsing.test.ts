@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseChallengeContent } from "@/lib/aiParsing";
+import {
+  parseChallengeContent,
+  parseReportContent,
+  REPORT_OBSERVATION_MAX,
+} from "@/lib/aiParsing";
 
 describe("parseChallengeContent", () => {
   it("parses a plain JSON object", () => {
@@ -56,5 +60,27 @@ describe("parseChallengeContent", () => {
       alternativeCall: null,
     });
     expect(parseChallengeContent(raw)).toBeNull();
+  });
+});
+
+describe("parseReportContent", () => {
+  it("parses a plain observation JSON object", () => {
+    const raw = JSON.stringify({ observation: "本次样本呈现选择性接受。" });
+    expect(parseReportContent(raw)).toEqual({
+      observation: "本次样本呈现选择性接受。",
+    });
+  });
+
+  it("rejects an empty observation", () => {
+    expect(parseReportContent('{"observation":""}')).toBeNull();
+  });
+
+  it("rejects non-JSON input", () => {
+    expect(parseReportContent("not json")).toBeNull();
+  });
+
+  it("rejects an observation over the max length", () => {
+    const raw = JSON.stringify({ observation: "a".repeat(REPORT_OBSERVATION_MAX + 1) });
+    expect(parseReportContent(raw)).toBeNull();
   });
 });
