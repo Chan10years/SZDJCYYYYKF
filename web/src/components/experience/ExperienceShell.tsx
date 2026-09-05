@@ -2,7 +2,7 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import { experienceReducer, initialState } from "@/domain/experienceReducer";
-import { loadSession, saveSession } from "@/lib/storage";
+import { clearSession, loadSession, saveSession } from "@/lib/storage";
 import { requestChallengeOnClient } from "@/lib/challengeClient";
 import { scenarios } from "@/data/scenarios";
 import type { ExperiencePhase } from "@/domain/types";
@@ -13,6 +13,7 @@ import { ChallengeScreen } from "./ChallengeScreen";
 import { TacticalPreviewScreen } from "./TacticalPreviewScreen";
 import { ProfessionalReferenceScreen } from "./ProfessionalReferenceScreen";
 import { RoundReviewScreen } from "./RoundReviewScreen";
+import { ConnectionReportScreen } from "./ConnectionReportScreen";
 
 function NotYet({ phase }: { phase: ExperiencePhase }) {
   return (
@@ -148,6 +149,16 @@ export function ExperienceShell() {
         />
       ) : (
         <NotYet phase={state.phase} />
+      );
+    case "summary":
+      return (
+        <ConnectionReportScreen
+          rounds={state.completedRounds}
+          onReset={() => {
+            clearSession();
+            dispatch({ type: "RESET" });
+          }}
+        />
       );
     default:
       return <NotYet phase={state.phase} />;
