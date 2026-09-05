@@ -8,8 +8,8 @@ import { buildFallbackReport } from "@/domain/fallback";
 import { OBSERVATION_CANDIDATES } from "@/domain/reportObservation";
 import { ReportResponseSchema } from "@/lib/aiParsing";
 import { ConnectionTrajectory } from "@/components/report/ConnectionTrajectory";
-import { DonutMetric } from "@/components/report/DonutMetric";
-import { MetricCard } from "@/components/report/MetricCard";
+import { PageFrame } from "@/components/layout/PageFrame";
+import { Num } from "@/components/layout/MetadataStrip";
 
 type ConnectionReportScreenProps = {
   rounds: RoundResult[];
@@ -80,116 +80,74 @@ export function ConnectionReportScreen({
     .sort((a, b) => b[1] - a[1]);
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-6">
-      <header className="border-b border-app-line py-4">
-        <h1 className="text-[15px] font-medium text-app-text">连接报告</h1>
-        <p className="mt-0.5 text-[13px] text-app-muted">
-          连接 AI 之后，你的判断发生了什么
+    <PageFrame family="analysis">
+      <header className="pt-8">
+        <h1 className="text-2xl font-semibold leading-[1.28] text-app-text">
+          连接报告
+        </h1>
+        <p className="mt-6 text-[2rem] font-semibold leading-[1.24] text-app-text">
+          从单局，到模式。
+        </p>
+        <p className="mt-6 text-xs leading-relaxed text-app-muted">
+          {SMALL_SAMPLE_NOTE}
         </p>
       </header>
 
-      <div className="flex flex-col gap-6 py-6">
-        <p className="rounded-md border border-app-line bg-app-surface px-3 py-2.5 text-[12px] leading-relaxed text-app-muted">
-          {SMALL_SAMPLE_NOTE}
-        </p>
-
-        <ConnectionTrajectory rounds={rounds} />
-
-        <div className="grid grid-cols-2 gap-3">
-          <MetricCard title="AI 分歧">
-            <DonutMetric
-              label="AI 给出不同初始判断的比例"
-              numerator={stats.disagreementCount}
-              denominator={stats.totalRounds}
-            />
-          </MetricCard>
-
-          <MetricCard title="分歧后采纳">
-            <DonutMetric
-              label="分歧后选择 AI 建议的比例"
-              numerator={stats.acceptanceCount}
-              denominator={stats.disagreementCount}
-            />
-          </MetricCard>
-
-          <MetricCard title="独立坚持">
-            <p className="text-center font-mono text-3xl font-semibold tabular-nums text-app-info">
-              {stats.persistenceCount}
-              <span className="ml-1 text-sm font-normal text-app-muted">次</span>
-            </p>
-            <p className="text-center text-[12px] leading-snug text-app-muted">
-              分歧后坚持自己初始方案，非好坏评价
-            </p>
-          </MetricCard>
-
-          <MetricCard title="职业路径趋同">
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[12px] text-app-muted">初始趋同</span>
-                <span className="font-mono text-sm font-semibold tabular-nums text-app-text">
-                  {stats.initialProfessionalAlignmentCount} / {stats.totalRounds}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[12px] text-app-muted">最终趋同</span>
-                <span className="font-mono text-sm font-semibold tabular-nums text-app-text">
-                  {stats.finalProfessionalAlignmentCount} / {stats.totalRounds}
-                </span>
-              </div>
-            </div>
-          </MetricCard>
+      <div className="flex flex-col py-8">
+        <div className="border-y border-app-line py-6">
+          <ConnectionTrajectory rounds={rounds} />
         </div>
 
-        <div className="flex flex-col gap-3 rounded-lg border border-app-line bg-app-elevated px-4 py-4">
-          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-app-muted">
-            AI 行为观察
-          </p>
+        {/* supporting metrics：嵌句呈现，数字 mono tabular，不做看板 */}
+        <p className="mt-8 text-[15px] leading-[1.7] text-app-text">
+          本次体验中：AI 在 <Num>{stats.disagreementCount}/{stats.totalRounds}</Num> 局给出不同方向；
+          {stats.disagreementCount > 0 ? (
+            <>
+              分歧后调整 <Num>{stats.acceptanceCount}/{stats.disagreementCount}</Num>；
+            </>
+          ) : null}
+          独立坚持 <Num>{stats.persistenceCount}</Num> 次；
+          职业路径趋同 <Num>{stats.initialProfessionalAlignmentCount}</Num>
+          {" → "}
+          <Num>{stats.finalProfessionalAlignmentCount}</Num>。
+        </p>
+
+        <div className="mt-10 flex flex-col gap-3">
+          <p className="text-[15px] font-semibold text-app-text">AI 行为观察</p>
           {observation ? (
-            <p className="text-[13px] leading-relaxed text-app-text">
+            <p className="text-[15px] leading-[1.7] text-app-text">
               {observation.text}
             </p>
           ) : (
-            <p className="text-[13px] leading-relaxed text-app-muted">
+            <p className="text-[15px] leading-[1.7] text-app-muted">
               正在生成本次连接行为观察……
             </p>
           )}
         </div>
 
-        <div className="flex flex-col gap-3 rounded-lg border border-app-line bg-app-surface px-4 py-4">
-          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-app-muted">
-            理由频率
+        {topReasons.length > 0 ? (
+          <p className="mt-10 text-[13px] leading-relaxed text-app-muted">
+            依据使用：
+            {topReasons.map(([id, count], i) => (
+              <span key={id}>
+                {i > 0 ? " · " : ""}
+                {reasonLabels.get(id) ?? id}{" "}
+                <Num>×{count}</Num>
+              </span>
+            ))}
           </p>
-          {topReasons.length === 0 ? (
-            <p className="text-[13px] text-app-muted">暂无理由记录。</p>
-          ) : (
-            <ul className="flex flex-col gap-1.5">
-              {topReasons.map(([id, count]) => (
-                <li
-                  key={id}
-                  className="flex items-center justify-between text-[13px]"
-                >
-                  <span className="text-app-text">
-                    {reasonLabels.get(id) ?? id}
-                  </span>
-                  <span className="font-mono text-sm tabular-nums text-app-muted">
-                    ×{count}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        ) : null}
       </div>
 
-      <div className="py-6">
+      <div className="pb-8">
         <button
           type="button"
           onClick={onReset}
-          className="h-12 w-full rounded-md border border-app-line text-[15px] font-medium text-app-text transition-colors hover:border-app-accent hover:text-app-accent"
+          className="h-12 w-full rounded-md border border-app-line text-[15px] font-medium text-app-text transition-colors hover:border-app-muted"
         >
           重新体验
         </button>
       </div>
-    </div>
+    </PageFrame>
   );
 }

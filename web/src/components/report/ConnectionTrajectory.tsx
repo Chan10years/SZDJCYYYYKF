@@ -3,7 +3,7 @@
 import type { CallId, RoundResult } from "@/domain/types";
 import { scenarios } from "@/data/scenarios";
 
-type RowStatus = "采纳" | "坚持" | "一致";
+type RowStatus = "调整" | "坚持" | "一致";
 
 type Row = {
   roundLabel: string;
@@ -24,7 +24,7 @@ function toTrajectoryRows(rounds: RoundResult[]): Row[] {
     const status: RowStatus = !hasDisagreement
       ? "一致"
       : round.finalCall === round.aiAlternativeCall
-        ? "采纳"
+        ? "调整"
         : "坚持";
     return {
       roundLabel: `R${index + 1}`,
@@ -38,112 +38,100 @@ function toTrajectoryRows(rounds: RoundResult[]): Row[] {
   });
 }
 
-const COLUMN_HEADERS = ["回合", "初始判断", "AI 挑战", "最终判断", "职业路径"];
-
-function CallChip({
-  call,
-  emphasize = false,
-}: {
-  call: CallId;
-  emphasize?: boolean;
-}) {
+function InitialNode({ call }: { call: CallId }) {
   return (
-    <span
-      className={
-        emphasize
-          ? "inline-flex h-11 w-11 items-center justify-center rounded-lg border border-app-accent bg-app-elevated text-base font-semibold text-app-accent"
-          : "inline-flex h-11 w-11 items-center justify-center rounded-lg border border-app-line bg-app-elevated text-base font-semibold text-app-text"
-      }
-    >
+    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-app-user text-base font-semibold text-app-user">
       {call}
     </span>
   );
 }
 
-const STATUS_STYLES: Record<RowStatus, string> = {
-  采纳: "border-app-accent text-app-accent",
-  坚持: "border-app-info text-app-info",
-  一致: "border-app-line text-app-muted",
-};
+function AiNode({ call }: { call: CallId }) {
+  return (
+    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-dashed border-app-ai text-base font-semibold text-app-ai">
+      {call}
+    </span>
+  );
+}
+
+function FinalNode({ call, changed }: { call: CallId; changed: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-app-user text-base font-semibold text-app-bg">
+        {call}
+      </span>
+      {changed ? (
+        <span className="text-app-user" aria-label="判断发生变化">
+          ▸
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function Connector() {
+  return <span className="h-px w-5 shrink-0 bg-app-line" aria-hidden="true" />;
+}
 
 /**
- * Connection Trajectory —— 结果页最主要的视觉模块。
- * 每局一行：初始判断 | AI 挑战 | 最终判断 | 职业路径，
- * 状态标签为 采纳 / 坚持 / 一致，不判断输赢。
+ * Connection Trajectory —— 结果页第一视觉主角。
+ * 每局一条节点链：Initial → AI → Final，Pro 信息完整文字不截断。
+ * 状态为纯文字（调整 / 坚持 / 一致），不判断输赢、不用 pill。
  */
 export function ConnectionTrajectory({ rounds }: { rounds: RoundResult[] }) {
   const rows = toTrajectoryRows(rounds);
 
   return (
-    <section className="rounded-lg border border-app-line bg-app-surface" aria-label="连接轨迹">
-      <div className="grid grid-cols-[3rem_1fr_1fr_1fr_1fr] items-center border-b border-app-line px-3 py-2">
-        {COLUMN_HEADERS.map((label) => {
-          const isRound = label === "回合";
-          return (
-            <p
-              key={label}
-              className={
-                isRound
-                  ? "text-[10px] font-mono uppercase tracking-wider text-app-muted"
-                  : "text-center text-[10px] font-mono uppercase tracking-wider text-app-muted"
-              }
-            >
-              {label}
-            </p>
-          );
-        })}
-      </div>
-
-      <div className="flex flex-col">
-        {rows.map((row) => {
-          const changed = row.finalCall !== row.initialCall;
-          return (
-            <div
-              key={row.roundLabel}
-              className="flex flex-col border-b border-app-line px-3 py-4 last:border-b-0"
-            >
-              <div className="grid grid-cols-[3rem_1fr_1fr_1fr_1fr] items-center gap-1">
-                <span className="text-[12px] font-mono text-app-muted">
+    <section aria-label="连接轨迹" className="flex flex-col gap-6">
+      {rows.map((row) => {
+        const changed = row.finalCall !== row.initialCall;
+        const chain = (
+          <>
+            <InitialNode call={row.initialCall} />
+            <Connector />
+            {row.aiCall ? (
+              <AiNode call={row.aiCall} />
+            ) : (
+              <span className="text-[13px] text-app-muted">一致</span>
+            )}
+            <Connector />
+            <FinalNode call={row.finalCall} changed={changed} />
+          </>
+        );
+        const pro = (
+          <p className="text-[13px] leading-relaxed text-app-muted">
+            <span className="text-app-pro">Pro {row.professionalCall}</span>
+            {" · "}
+            {row.professionalLabel}
+          </p>
+        );
+        return (
+          <div key={row.roundLabel}>
+            {/* desktop：单行网格，Pro 列弹性宽度保证完整 */}
+            <div className="hidden items-center gap-4 md:grid md:grid-cols-[3rem_auto_auto_1fr]">
+              <span className="font-mono text-xs tabular-nums text-app-muted">
+                {row.roundLabel}
+              </span>
+              <div className="flex items-center gap-2">{chain}</div>
+              <span className="text-[13px] text-app-text">{row.status}</span>
+              {pro}
+            </div>
+            {/* mobile：链一行 + Pro 整行 */}
+            <div className="flex flex-col gap-2 md:hidden">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-xs tabular-nums text-app-muted">
                   {row.roundLabel}
                 </span>
-
-                <div className="flex justify-center">
-                  <CallChip call={row.initialCall} />
-                </div>
-
-                <div className="flex justify-center">
-                  {row.aiCall ? (
-                    <CallChip call={row.aiCall} />
-                  ) : (
-                    <span className="inline-flex h-11 w-11 items-center justify-center text-[12px] text-app-muted">
-                      一致
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex justify-center">
-                  <CallChip call={row.finalCall} emphasize={changed} />
-                </div>
-
-                <div className="flex min-w-0 flex-col items-center gap-0.5">
-                  <CallChip call={row.professionalCall} />
-                  <span className="w-full truncate text-center text-[10px] text-app-muted">
-                    {row.professionalLabel}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex justify-center pt-2">
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${STATUS_STYLES[row.status]}`}
-                >
+                {chain}
+                <span className="ml-1 text-[13px] text-app-text">
                   {row.status}
                 </span>
               </div>
+              {pro}
             </div>
-          );
-        })}
-      </div>
+          </div>
+        );
+      })}
     </section>
   );
 }

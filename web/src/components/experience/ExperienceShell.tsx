@@ -108,12 +108,17 @@ export function ExperienceShell() {
         />
       );
     case "challenge":
-      return (
+      return state.initialCall !== null ? (
         <ChallengeScreen
+          scenario={scenario}
+          initialCall={state.initialCall}
+          reasonIds={state.reasonIds}
           challenge={state.challenge}
           onKeep={() => dispatch({ type: "KEEP_INITIAL" })}
           onAccept={() => dispatch({ type: "ACCEPT_ALTERNATIVE" })}
         />
+      ) : (
+        <NotYet phase={state.phase} />
       );
     case "preview":
       return state.finalCall !== null ? (
