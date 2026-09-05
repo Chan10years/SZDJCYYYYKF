@@ -10,6 +10,7 @@ import { IntroScreen } from "./IntroScreen";
 import { SituationScreen } from "./SituationScreen";
 import { DecisionScreen } from "./DecisionScreen";
 import { ChallengeScreen } from "./ChallengeScreen";
+import { TacticalPreviewScreen } from "./TacticalPreviewScreen";
 
 function NotYet({ phase }: { phase: ExperiencePhase }) {
   return (
@@ -109,6 +110,16 @@ export function ExperienceShell() {
           onKeep={() => dispatch({ type: "KEEP_INITIAL" })}
           onAccept={() => dispatch({ type: "ACCEPT_ALTERNATIVE" })}
         />
+      );
+    case "preview":
+      return state.finalCall !== null ? (
+        <TacticalPreviewScreen
+          scenario={scenario}
+          finalCall={state.finalCall}
+          onNext={() => dispatch({ type: "SHOW_REFERENCE" })}
+        />
+      ) : (
+        <NotYet phase={state.phase} />
       );
     default:
       return <NotYet phase={state.phase} />;
