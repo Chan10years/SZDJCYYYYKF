@@ -142,19 +142,47 @@ describe("experienceReducer", () => {
     for (let i = 0; i < 3; i += 1) {
       if (i > 0) {
         s = {
-          phase: "decision",
-          scenarioIndex: s.scenarioIndex,
+          ...s,
+          phase: "review",
+          scenarioIndex: i,
           initialCall: i === 1 ? "B" : "C",
           reasonIds: ["time_pressure"],
           challenge,
           finalCall: "A",
-          completedRounds: s.completedRounds,
         };
       }
       s = experienceReducer(s, { type: "COMPLETE_ROUND" });
     }
     expect(s.completedRounds).toHaveLength(3);
     expect(s.phase).toBe("summary");
+    expect(s.scenarioIndex).toBeLessThanOrEqual(2);
+  });
+
+  it("blocks forward actions from the wrong phase", () => {
+    // Intro 不能直接跳到 reference / review
+    expect(
+      experienceReducer(initialState, { type: "SHOW_REFERENCE" }).phase,
+    ).toBe("intro");
+    expect(
+      experienceReducer(initialState, { type: "SHOW_REVIEW" }).phase,
+    ).toBe("intro");
+    expect(
+      experienceReducer(initialState, { type: "BEGIN_DECISION" }).phase,
+    ).toBe("intro");
+    // 已进入 challenge 后不能再改 initial call
+    const afterChallenge = experienceReducer(resolvedState, {
+      type: "SET_CALL",
+      call: "C",
+    });
+    expect(afterChallenge.initialCall).toBe("A");
+    // 不能跳过正常流程直接完成 round
+    const skipped = experienceReducer(decisionState, { type: "COMPLETE_ROUND" });
+    expect(skipped.completedRounds).toEqual([]);
+    expect(skipped.phase).toBe("decision");
+    // 未到 review 不能进入 preview
+    expect(
+      experienceReducer(initialState, { type: "KEEP_INITIAL" }).phase,
+    ).toBe("intro");
   });
 
   it("RESET clears the session to intro", () => {

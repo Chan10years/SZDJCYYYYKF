@@ -58,15 +58,27 @@ export function experienceReducer(
 ): ExperienceState {
   switch (action.type) {
     case "START":
+      if (state.phase !== "intro") {
+        return state;
+      }
       return { ...state, phase: "situation" };
 
     case "BEGIN_DECISION":
+      if (state.phase !== "situation") {
+        return state;
+      }
       return { ...state, phase: "decision" };
 
     case "SET_CALL":
+      if (state.phase !== "decision") {
+        return state;
+      }
       return { ...state, initialCall: action.call };
 
     case "TOGGLE_REASON": {
+      if (state.phase !== "decision") {
+        return state;
+      }
       const has = state.reasonIds.includes(action.reason);
       const reasonIds = has
         ? state.reasonIds.filter((id) => id !== action.reason)
@@ -77,22 +89,29 @@ export function experienceReducer(
     }
 
     case "REQUEST_CHALLENGE":
-      if (!canRequestChallenge(state)) {
+      if (state.phase !== "decision" || !canRequestChallenge(state)) {
         return state;
       }
       return { ...state, phase: "challenge" };
 
     case "CHALLENGE_RESOLVED":
+      if (state.phase !== "challenge") {
+        return state;
+      }
       return { ...state, challenge: action.challenge, phase: "challenge" };
 
     case "KEEP_INITIAL":
-      if (state.initialCall === null) {
+      if (state.phase !== "challenge" || state.initialCall === null) {
         return state;
       }
       return { ...state, finalCall: state.initialCall, phase: "preview" };
 
     case "ACCEPT_ALTERNATIVE": {
-      if (state.challenge === null || state.challenge.alternativeCall === null) {
+      if (
+        state.phase !== "challenge" ||
+        state.challenge === null ||
+        state.challenge.alternativeCall === null
+      ) {
         return state;
       }
       return {
@@ -103,13 +122,20 @@ export function experienceReducer(
     }
 
     case "SHOW_REFERENCE":
+      if (state.phase !== "preview") {
+        return state;
+      }
       return { ...state, phase: "reference" };
 
     case "SHOW_REVIEW":
+      if (state.phase !== "reference") {
+        return state;
+      }
       return { ...state, phase: "review" };
 
     case "COMPLETE_ROUND": {
       if (
+        state.phase !== "review" ||
         state.initialCall === null ||
         state.finalCall === null ||
         state.challenge === null
@@ -137,7 +163,8 @@ export function experienceReducer(
       if (nextIndex >= TOTAL_SCENARIOS) {
         return {
           phase: "summary",
-          scenarioIndex: nextIndex,
+          // 保持在 PersistedSessionSchema 允许的 0..2 范围内，刷新后可恢复
+          scenarioIndex: TOTAL_SCENARIOS - 1,
           initialCall: null,
           reasonIds: [],
           challenge: null,
