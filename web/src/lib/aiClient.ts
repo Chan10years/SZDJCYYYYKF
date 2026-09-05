@@ -38,6 +38,9 @@ export async function requestChatCompletion(
         messages: args.messages,
         temperature: 0.2,
         max_tokens: args.maxTokens,
+        thinking: {
+          type: "disabled",
+        },
       }),
       signal: controller.signal,
       // 路由处理程序内默认动态；明确关闭 fetch 缓存以免复用 LLM 响应
