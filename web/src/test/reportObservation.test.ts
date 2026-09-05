@@ -67,6 +67,35 @@ describe("eligibleObservationIds", () => {
     expect(ids).toContain("acceptance");
     expect(ids).not.toContain("persistence");
   });
+
+  it("offers alignment_progress only when final alignment exceeded initial", () => {
+    const rounds = [
+      makeRound("B", "C", true),
+      makeRound("B", "C", true),
+      makeRound("A", "B", true),
+    ];
+    const ids = eligibleObservationIds(calculateConnectionStats(rounds));
+    expect(ids).toContain("alignment_progress");
+    expect(ids).not.toContain("alignment_stable");
+  });
+
+  it("offers alignment_stable only when final alignment equals initial", () => {
+    const rounds = [
+      makeRound("A", null, true),
+      makeRound("B", null, true),
+      makeRound("C", null, true),
+    ];
+    const ids = eligibleObservationIds(calculateConnectionStats(rounds));
+    expect(ids).toContain("alignment_stable");
+    expect(ids).not.toContain("alignment_progress");
+  });
+
+  it("offers no alignment candidate when final alignment dropped below initial", () => {
+    const stats = calculateConnectionStats(makeMixedRounds());
+    const ids = eligibleObservationIds(stats);
+    expect(ids).not.toContain("alignment_progress");
+    expect(ids).not.toContain("alignment_stable");
+  });
 });
 
 describe("resolveReportObservation", () => {
@@ -80,6 +109,11 @@ describe("resolveReportObservation", () => {
 
   it("rejects an id that is ineligible for the current stats", () => {
     expect(resolveReportObservation("acceptance", stats)).toBeNull();
+  });
+
+  it("rejects alignment candidates when final alignment dropped below initial", () => {
+    expect(resolveReportObservation("alignment_progress", stats)).toBeNull();
+    expect(resolveReportObservation("alignment_stable", stats)).toBeNull();
   });
 
   it("rejects an unknown id", () => {
