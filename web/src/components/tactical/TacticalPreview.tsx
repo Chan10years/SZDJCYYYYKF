@@ -7,6 +7,8 @@ type TacticalPreviewProps = {
   scenario: Scenario;
   call: CallId;
   animate?: boolean;
+  /** full：完整预览（含 legend/metrics/disclaimer）；thumb：Decision 缩略方向图（仅底图+zones+routes）。 */
+  variant?: "full" | "thumb";
 };
 
 const ZONE_KIND_COLOR: Record<string, string> = {
@@ -35,6 +37,7 @@ export function TacticalPreview({
   scenario,
   call,
   animate = false,
+  variant = "full",
 }: TacticalPreviewProps) {
   const reduce = useReducedMotion();
   const play = animate && !reduce;
@@ -146,8 +149,8 @@ export function TacticalPreview({
         </svg>
       </div>
 
-      {/* 地图下方的区域标签 */}
-      {spec.zones.length > 0 && (
+      {/* 地图下方的区域标签（thumb 隐藏） */}
+      {variant === "full" && spec.zones.length > 0 && (
         <ul className="flex flex-wrap gap-2">
           {spec.zones.map((zone, i) => (
             <li
@@ -166,8 +169,8 @@ export function TacticalPreview({
         </ul>
       )}
 
-      {/* 定性指标 */}
-      {spec.metrics.length > 0 && (
+      {/* 定性指标（thumb 隐藏） */}
+      {variant === "full" && spec.metrics.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {spec.metrics.map((m) => (
             <div
@@ -185,9 +188,11 @@ export function TacticalPreview({
         </div>
       )}
 
-      <p className="border-t border-app-line pt-3 text-center font-mono text-[11px] text-app-muted">
-        战术空间预览 · 非比赛结果预测
-      </p>
+      {variant === "full" && (
+        <p className="border-t border-app-line pt-3 text-center font-mono text-[11px] text-app-muted">
+          战术空间预览 · 非比赛结果预测
+        </p>
+      )}
     </div>
   );
 }

@@ -1,4 +1,8 @@
+import Image from "next/image";
 import type { Scenario } from "@/domain/types";
+import { PageFrame } from "@/components/layout/PageFrame";
+import { MetadataStrip, Num } from "@/components/layout/MetadataStrip";
+import { MediaViewport } from "@/components/layout/MediaViewport";
 
 type SituationScreenProps = {
   scenario: Scenario;
@@ -7,83 +11,131 @@ type SituationScreenProps = {
   onBegin: () => void;
 };
 
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 py-2">
-      <dt className="shrink-0 text-[13px] text-app-muted">{label}</dt>
-      <dd className="text-right text-[14px] text-app-text">{value}</dd>
-    </div>
-  );
-}
-
+/**
+ * 局势页（P0）：用户进入 Decision 前必须先看到当前决策时刻的地图。
+ * 地图是判断基础信息，不是装饰 —— 表达“现在是什么局面”。
+ * 不显示当前 Call 路线 / AI 替代 / 职业路径 / 后续击杀 / 防守轮转 / 胜率。
+ * situation-hero 为氛围视觉，不替代判断地图。
+ */
 export function SituationScreen({
   scenario,
   round,
   totalRounds,
   onBegin,
 }: SituationScreenProps) {
-  return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-6">
-      <header className="flex items-center justify-between border-b border-app-line py-4">
-        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-app-muted">
-          Round {round} / {totalRounds}
-        </span>
-        {!scenario.verified && (
-          <span className="rounded border border-app-accent/50 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-app-accent">
-            Practice Fixture
-          </span>
-        )}
-      </header>
+  const situationMap = (
+    <MediaViewport>
+      {scenario.mapBase ? (
+        // 判断地图：当前决策时刻空间信息（无路线、无答案暗示）。
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={scenario.mapBase}
+          alt={`${scenario.source.map} 当前局势地图`}
+          className="block h-auto w-full"
+        />
+      ) : (
+        <div className="flex aspect-square items-center justify-center text-[13px] text-app-muted">
+          当前局势地图待接入
+        </div>
+      )}
+    </MediaViewport>
+  );
 
-      <div className="flex flex-1 flex-col justify-center gap-7 py-8">
+  const metadata = (
+    <MetadataStrip
+      items={[
+        <span key="r">
+          ROUND <Num>{round}/{totalRounds}</Num>
+        </span>,
+        <span key="map">{scenario.source.map.toUpperCase()}</span>,
+        <span key="time">
+          <Num>{scenario.situation.time}</Num>
+        </span>,
+        <span key="alive">
+          <Num>{scenario.situation.alive}</Num>
+        </span>,
+        <span key="obj">{scenario.situation.objective}</span>,
+      ]}
+    />
+  );
+
+  const facts = (
+    <div className="flex flex-col gap-4">
+      <p className="text-[15px] font-semibold text-app-text">已知信息</p>
+      <ul className="flex flex-col gap-3">
+        {scenario.situation.facts.map((fact) => (
+          <li key={fact.label} className="flex flex-col gap-0.5">
+            <span className="text-[13px] font-medium text-app-text">
+              {fact.label}
+            </span>
+            <span className="text-[13px] leading-relaxed text-app-muted">
+              {fact.detail}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs leading-relaxed text-app-muted">
+        {scenario.source.event} · {scenario.source.map} · R{scenario.source.round}
+        {scenario.verified ? "" : " · 练习场景 · 未核验"}
+      </p>
+    </div>
+  );
+
+  const beginButton = (
+    <button
+      type="button"
+      onClick={onBegin}
+      className="h-12 rounded-md bg-app-text text-[15px] font-medium text-app-bg transition-colors hover:opacity-90"
+    >
+      开始判断
+    </button>
+  );
+
+  return (
+    <PageFrame family="spatial" eyebrow={`0${round + 1} · 局势`}>
+      {/* desktop ≥lg：左地图 + 右局势栏，充分用宽 */}
+      <div className="hidden gap-12 py-8 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="flex flex-col gap-4">
+          {metadata}
+          {situationMap}
+        </div>
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <p className="text-[13px] text-app-muted">{scenario.purpose}</p>
+            <h1 className="text-2xl font-semibold leading-[1.28] text-app-text">
+              {scenario.title}
+            </h1>
+          </div>
+          {/* 氛围视觉图：不替代判断地图，仅作页面视觉元素 */}
+          <MediaViewport className="overflow-hidden">
+            <Image
+              src="/media/visual/situation-hero.png"
+              alt=""
+              width={640}
+              height={360}
+              className="block h-auto w-full"
+            />
+          </MediaViewport>
+          {facts}
+          <div className="pt-2">{beginButton}</div>
+        </div>
+      </div>
+
+      {/* mobile：地图可读优先，再显示事实 */}
+      <div className="flex flex-col gap-6 py-6 lg:hidden">
         <div className="flex flex-col gap-2">
           <p className="text-[13px] text-app-muted">{scenario.purpose}</p>
-          <h1 className="text-2xl font-medium leading-tight tracking-tight text-app-text">
+          <h1 className="text-2xl font-semibold leading-[1.28] text-app-text">
             {scenario.title}
           </h1>
         </div>
-
-        <dl className="rounded-lg border border-app-line bg-app-surface px-4 py-3">
-          <Field label="时间" value={scenario.situation.time} />
-          <Field label="存活人数" value={scenario.situation.alive} />
-          <Field label="目标" value={scenario.situation.objective} />
-        </dl>
-
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <span className="h-px flex-1 bg-app-line" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-app-muted">
-              局势事实
-            </span>
-          </div>
-          <ul className="flex flex-col gap-2">
-            {scenario.situation.facts.map((fact) => (
-              <li key={fact.label} className="flex flex-col gap-0.5">
-                <span className="text-[13px] font-medium text-app-text">
-                  {fact.label}
-                </span>
-                <span className="text-[13px] leading-relaxed text-app-muted">
-                  {fact.detail}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {metadata}
+          {situationMap}
         </div>
-
-        <p className="font-mono text-[11px] text-app-muted">
-          {scenario.source.event} · {scenario.source.map} · R{scenario.source.round}
-        </p>
+        {facts}
+        <div className="pt-2">{beginButton}</div>
       </div>
-
-      <div className="py-6">
-        <button
-          type="button"
-          onClick={onBegin}
-          className="h-12 w-full rounded-md bg-app-accent text-[15px] font-medium text-[#16130c] transition-colors hover:bg-[#ebba79]"
-        >
-          开始判断
-        </button>
-      </div>
-    </div>
+    </PageFrame>
   );
 }
