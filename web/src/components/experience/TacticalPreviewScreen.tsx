@@ -40,7 +40,7 @@ export function TacticalPreviewScreen({
           onClick={onNext}
           className="h-12 w-full rounded-md bg-app-accent text-[15px] font-medium text-[#16130c] transition-colors hover:bg-[#ebba79]"
         >
-          查看真实职业路径
+          {scenario.verified ? "查看真实职业路径" : "查看练习路径参考"}
         </button>
       </div>
     </div>

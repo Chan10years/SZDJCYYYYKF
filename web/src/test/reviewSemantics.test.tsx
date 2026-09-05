@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { RoundReviewScreen } from "@/components/experience/RoundReviewScreen";
 import { ProfessionalReferenceScreen } from "@/components/experience/ProfessionalReferenceScreen";
+import { TacticalPreviewScreen } from "@/components/experience/TacticalPreviewScreen";
 import { fixtureScenarios } from "@/data/scenarios.fixture";
 import type { ChallengeOutput } from "@/domain/types";
 
@@ -62,5 +63,36 @@ describe("ProfessionalReferenceScreen — practice fixture copy", () => {
       screen.getAllByText(/尚未进行正式比赛核验/).length,
     ).toBeGreaterThan(0);
     expect(screen.getAllByText(/不是唯一正确答案/).length).toBeGreaterThan(0);
+  });
+});
+
+describe("TacticalPreviewScreen — reference entry copy", () => {
+  it("shows practice entry for an unverified fixture", () => {
+    render(
+      <TacticalPreviewScreen
+        scenario={scenario}
+        finalCall="A"
+        onNext={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByText("查看真实职业路径"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("查看练习路径参考")).toBeInTheDocument();
+  });
+
+  it("shows the real professional entry for a verified scenario", () => {
+    const verified = { ...scenario, verified: true };
+    render(
+      <TacticalPreviewScreen
+        scenario={verified}
+        finalCall="A"
+        onNext={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("查看真实职业路径")).toBeInTheDocument();
+    expect(
+      screen.queryByText("查看练习路径参考"),
+    ).not.toBeInTheDocument();
   });
 });
