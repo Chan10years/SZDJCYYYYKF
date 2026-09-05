@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  isValidReportObservation,
-  parseChallengeContent,
-  parseReportContent,
-  REPORT_OBSERVATION_MAX,
-} from "@/lib/aiParsing";
+import { parseChallengeContent, parseReportChooseContent } from "@/lib/aiParsing";
 
 describe("parseChallengeContent", () => {
   it("parses a plain JSON object", () => {
@@ -64,42 +59,24 @@ describe("parseChallengeContent", () => {
   });
 });
 
-describe("parseReportContent", () => {
-  it("parses a plain observation JSON object", () => {
-    const raw = JSON.stringify({ observation: "本次样本呈现选择性接受。" });
-    expect(parseReportContent(raw)).toEqual({
-      observation: "本次样本呈现选择性接受。",
-    });
+describe("parseReportChooseContent", () => {
+  it("parses a plain choose JSON object", () => {
+    const raw = JSON.stringify({ choose: "mixed" });
+    expect(parseReportChooseContent(raw)).toEqual({ choose: "mixed" });
   });
 
-  it("rejects an empty observation", () => {
-    expect(parseReportContent('{"observation":""}')).toBeNull();
+  it("rejects an empty choose", () => {
+    expect(parseReportChooseContent('{"choose":""}')).toBeNull();
   });
 
   it("rejects non-JSON input", () => {
-    expect(parseReportContent("not json")).toBeNull();
+    expect(parseReportChooseContent("not json")).toBeNull();
   });
 
-  it("rejects an observation over the max length", () => {
-    const raw = JSON.stringify({ observation: "a".repeat(REPORT_OBSERVATION_MAX + 1) });
-    expect(parseReportContent(raw)).toBeNull();
-  });
-});
-
-describe("isValidReportObservation", () => {
-  it("accepts a boundary-compliant observation", () => {
-    const text = "当前样本呈现的是选择性接受第二意见，且仅反映本次体验。";
-    expect(isValidReportObservation(text)).toBe(true);
-  });
-
-  it("rejects personality diagnosis wording", () => {
-    expect(isValidReportObservation("你是一个抗拒权威的人格")).toBe(false);
-    expect(isValidReportObservation("你就是容易受他人影响")).toBe(false);
-  });
-
-  it("rejects treating professional paths as right or wrong answers", () => {
-    expect(isValidReportObservation("你选对了正确答案")).toBe(false);
-    expect(isValidReportObservation("你的判断是唯一最优")).toBe(false);
-    expect(isValidReportObservation("你答错了")).toBe(false);
+  it("rejects free-text observation output (no choose field)", () => {
+    const raw = JSON.stringify({
+      observation: "你在分歧中明显更重视自己的判断，这说明你……",
+    });
+    expect(parseReportChooseContent(raw)).toBeNull();
   });
 });

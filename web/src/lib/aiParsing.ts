@@ -42,28 +42,28 @@ export function parseChallengeContent(
   return result.success ? result.data : null;
 }
 
-/** 跨局报表观察的最大长度上限，用于拒绝过长的模型输出。 */
-export const REPORT_OBSERVATION_MAX = 600;
-
-/** Report 模型输出：一段中文行为观察。 */
-const ReportContentSchema = z.object({
-  observation: z.string().min(1).max(REPORT_OBSERVATION_MAX),
+/**
+ * Report 模型输出：只允许选择要强调的候选 id，不生成自由文本。
+ * 展示文案一律来自程序定义的安全候选，模型输出不直接进入 UI。
+ */
+const ChooseContentSchema = z.object({
+  choose: z.string().min(1).max(32),
 });
 
 /** /api/report 的对外响应结构，客户端与服务端共享校验。 */
 export const ReportResponseSchema = z.object({
-  observation: z.string().min(1).max(REPORT_OBSERVATION_MAX),
+  observation: z.string().min(1),
   source: z.enum(["live", "fallback"]),
 });
 
 /**
- * 解析模型返回的跨局行为观察。
- * 接受 { observation } 的纯 JSON，必须经过 Zod 校验。
- * 空 observation / 非 JSON / 超长均返回 null。
+ * 解析模型返回的候选选择。
+ * 接受 { choose } 的纯 JSON，必须经过 Zod 校验。
+ * 空输入 / 非 JSON / 缺失 choose 均返回 null。
  */
-export function parseReportContent(
+export function parseReportChooseContent(
   raw: string,
-): { observation: string } | null {
+): { choose: string } | null {
   const body = stripCodeFence(raw).trim();
   if (body.length === 0) {
     return null;
@@ -74,30 +74,6 @@ export function parseReportContent(
   } catch {
     return null;
   }
-  const result = ReportContentSchema.safeParse(json);
+  const result = ChooseContentSchema.safeParse(json);
   return result.success ? result.data : null;
-}
-
-/**
- * 违反项目边界的观察措辞。命中任一即判定违规，降级到 deterministic fallback。
- * 覆盖：把职业路径/结果表述为对错、人格/性格类诊断、心理学式定性。
- */
-const FORBIDDEN_OBSERVATION_PHRASES = [
-  "正确答案",
-  "答错",
-  "必然",
-  "唯一最优",
-  "你就是",
-  "你属于",
-  "人格",
-  "性格",
-  "更正确",
-  "正确率",
-];
-
-/** 程序侧最小保护：live observation 不得越过项目边界措辞。 */
-export function isValidReportObservation(observation: string): boolean {
-  return !FORBIDDEN_OBSERVATION_PHRASES.some((phrase) =>
-    observation.includes(phrase),
-  );
 }

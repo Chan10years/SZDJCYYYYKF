@@ -5,6 +5,7 @@ import type { RoundResult } from "@/domain/types";
 import { scenarios } from "@/data/scenarios";
 import { calculateConnectionStats } from "@/domain/stats";
 import { buildFallbackReport } from "@/domain/fallback";
+import { OBSERVATION_CANDIDATES } from "@/domain/reportObservation";
 import { ReportResponseSchema } from "@/lib/aiParsing";
 import { ConnectionTrajectory } from "@/components/report/ConnectionTrajectory";
 import { DonutMetric } from "@/components/report/DonutMetric";
@@ -45,13 +46,17 @@ export function ConnectionReportScreen({
         if (!parsed.success) {
           throw new Error("Report response failed schema validation");
         }
+        // 最终展示的 observation 必须来自程序定义的安全候选，杜绝任意模型文本进入 UI。
+        if (!(Object.values(OBSERVATION_CANDIDATES) as string[]).includes(parsed.data.observation)) {
+          throw new Error("Report observation is not a program-defined candidate");
+        }
         if (!cancelled) {
           setObservation({ text: parsed.data.observation, source: parsed.data.source });
         }
       } catch {
         if (!cancelled) {
           setObservation({
-            text: buildFallbackReport(rounds, calculateConnectionStats(rounds)),
+            text: buildFallbackReport(calculateConnectionStats(rounds)),
             source: "fallback",
           });
         }

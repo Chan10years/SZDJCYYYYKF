@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildFallbackChallenge, buildFallbackReport } from "@/domain/fallback";
+import { OBSERVATION_CANDIDATES } from "@/domain/reportObservation";
 import { calculateConnectionStats } from "@/domain/stats";
 import { fixtureScenarios } from "@/data/scenarios.fixture";
 import type { CallId, ReasonId, RoundResult } from "@/domain/types";
@@ -89,70 +90,41 @@ describe("buildFallbackChallenge", () => {
 
 describe("buildFallbackReport", () => {
   const rounds = makeRounds();
-  const stats = calculateConnectionStats(rounds);
+  const safeTexts = Object.values(OBSERVATION_CANDIDATES);
 
-  it("mentions disagreement, acceptance and persistence counts", () => {
-    const text = buildFallbackReport(rounds, stats);
-    expect(text).toContain("3 个案例");
-    expect(text).toContain("2 次 AI 分歧");
-    expect(text).toContain("采纳了 1 次");
-    expect(text).toContain("坚持了 1 次");
+  it("always returns a program-defined safe candidate", () => {
+    const text = buildFallbackReport(calculateConnectionStats(rounds));
+    expect(safeTexts).toContain(text);
   });
 
-  it("mentions the highest-frequency reason label", () => {
-    const text = buildFallbackReport(rounds, stats);
-    expect(text).toContain("「人数优势」");
-  });
-
-  it("includes a small-sample qualifier without personality claims", () => {
-    const text = buildFallbackReport(rounds, stats);
-    expect(text).toContain("当前样本");
-    expect(text).not.toContain("你就是");
-    expect(text).not.toContain("人格");
-  });
-
-  it("phrases accurately when every disagreement was accepted", () => {
+  it("returns the acceptance candidate when every disagreement was accepted", () => {
     const allAccept = [
       makeAccepted("A", "B"),
       makeAccepted("B", "C"),
       makeAccepted("C", "A"),
     ];
-    const text = buildFallbackReport(
-      allAccept,
-      calculateConnectionStats(allAccept),
-    );
-    expect(text).toContain("3 次 AI 分歧中采纳了 3 次、坚持了 0 次");
-    expect(text).toContain("均采纳了第二意见");
-    expect(text).not.toContain("选择性接受");
+    const text = buildFallbackReport(calculateConnectionStats(allAccept));
+    expect(text).toBe(OBSERVATION_CANDIDATES.acceptance);
   });
 
-  it("phrases accurately when every disagreement was persisted", () => {
+  it("returns the persistence candidate when every disagreement was persisted", () => {
     const allPersist = [
       makePersisted("A", "B"),
       makePersisted("B", "C"),
       makePersisted("C", "A"),
     ];
-    const text = buildFallbackReport(
-      allPersist,
-      calculateConnectionStats(allPersist),
-    );
-    expect(text).toContain("3 次 AI 分歧中采纳了 0 次、坚持了 3 次");
-    expect(text).toContain("均坚持了自己的初始判断");
-    expect(text).not.toContain("选择性接受");
+    const text = buildFallbackReport(calculateConnectionStats(allPersist));
+    expect(text).toBe(OBSERVATION_CANDIDATES.persistence);
   });
 
-  it("phrases accurately when there was no disagreement", () => {
+  it("returns the no-disagreement candidate when there was no disagreement", () => {
     const noDisagreement = [
       makeAgreeing("A"),
       makeAgreeing("B"),
       makeAgreeing("C"),
     ];
-    const text = buildFallbackReport(
-      noDisagreement,
-      calculateConnectionStats(noDisagreement),
-    );
-    expect(text).toContain("三局均未出现 AI 分歧");
-    expect(text).not.toContain("采纳了 0 次");
+    const text = buildFallbackReport(calculateConnectionStats(noDisagreement));
+    expect(text).toBe(OBSERVATION_CANDIDATES.no_disagreement);
   });
 });
 
