@@ -149,43 +149,33 @@ export function TacticalPreview({
         </svg>
       </div>
 
-      {/* 地图下方的区域标签（thumb 隐藏） */}
+      {/* 地图下方的区域标签（thumb 隐藏）：legend 单行，去胶囊 */}
       {variant === "full" && spec.zones.length > 0 && (
-        <ul className="flex flex-wrap gap-2">
+        <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-app-muted">
           {spec.zones.map((zone, i) => (
-            <li
-              key={`${zone.kind}-label-${i}`}
-              className="flex items-center gap-1.5 rounded-full border border-app-line px-3 py-1"
-            >
+            <span key={`${zone.kind}-label-${i}`} className="flex items-center gap-1.5">
               <span
                 className="h-2 w-2 rounded-full"
                 style={{
                   background: ZONE_KIND_COLOR[zone.kind] ?? "#98a2b1",
                 }}
               />
-              <span className="text-[12px] text-app-muted">{zone.label}</span>
-            </li>
+              {zone.label}
+            </span>
           ))}
-        </ul>
+        </p>
       )}
 
-      {/* 定性指标（thumb 隐藏） */}
+      {/* 定性指标（thumb 隐藏）：紧凑编辑式，地图压过文字 */}
       {variant === "full" && spec.metrics.length > 0 && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {spec.metrics.map((m) => (
-            <div
-              key={m.label}
-              className="rounded-md border border-app-line bg-app-surface px-3 py-2"
-            >
-              <p className="font-mono text-[10px] uppercase tracking-wider text-app-muted">
-                {m.label}
-              </p>
-              <p className="mt-0.5 text-[14px] font-medium text-app-text">
-                {m.value}
-              </p>
-            </div>
+        <p className="text-[13px] leading-relaxed text-app-muted">
+          {spec.metrics.map((m, i) => (
+            <span key={m.label}>
+              {i > 0 ? " · " : ""}
+              {m.label} <span className="text-app-text">{m.value}</span>
+            </span>
           ))}
-        </div>
+        </p>
       )}
 
       {variant === "full" && (

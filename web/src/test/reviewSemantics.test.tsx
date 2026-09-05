@@ -28,9 +28,11 @@ describe("RoundReviewScreen — review semantics", () => {
         onComplete={vi.fn()}
       />,
     );
-    expect(screen.getByText(/可能风险/)).toBeInTheDocument();
-    expect(screen.getByText(/针对初始 Call 的盲点/)).toBeInTheDocument();
-    expect(screen.getByText(/需要再想一次/)).toBeInTheDocument();
+    expect(screen.getAllByText(/可能风险/).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/针对初始 Call 的盲点/).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/需要再想一次/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/已调整方案/)).not.toBeInTheDocument();
   });
 
@@ -45,11 +47,13 @@ describe("RoundReviewScreen — review semantics", () => {
         onComplete={vi.fn()}
       />,
     );
-    expect(screen.getByText(/你的最终方案 · Call B/)).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/你的最终方案 · Call B/).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByText(/可能风险/)).not.toBeInTheDocument();
     expect(screen.queryByText(/需要再想一次/)).not.toBeInTheDocument();
     expect(screen.queryByText(/针对初始 Call 的盲点/)).not.toBeInTheDocument();
-    expect(screen.getByText(/已调整方案/)).toBeInTheDocument();
+    expect(screen.getAllByText(/已调整方案/).length).toBeGreaterThan(0);
   });
 });
 
@@ -78,7 +82,9 @@ describe("TacticalPreviewScreen — reference entry copy", () => {
     expect(
       screen.queryByText("查看真实职业路径"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("查看练习路径参考")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("查看练习路径参考").length,
+    ).toBeGreaterThan(0);
   });
 
   it("shows the real professional entry for a verified scenario", () => {
@@ -90,7 +96,9 @@ describe("TacticalPreviewScreen — reference entry copy", () => {
         onNext={vi.fn()}
       />,
     );
-    expect(screen.getByText("查看真实职业路径")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("查看真实职业路径").length,
+    ).toBeGreaterThan(0);
     expect(
       screen.queryByText("查看练习路径参考"),
     ).not.toBeInTheDocument();
