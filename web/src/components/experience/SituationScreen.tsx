@@ -14,8 +14,8 @@ type SituationScreenProps = {
 /**
  * 局势页（P0）：用户进入 Decision 前必须先看到当前决策时刻的地图。
  * 地图是判断基础信息，不是装饰 —— 表达“现在是什么局面”。
- * 不显示当前 Call 路线 / AI 替代 / 职业路径 / 后续击杀 / 防守轮转 / 胜率。
- * situation-hero 为氛围视觉，不替代判断地图。
+ * situation-hero 负责比赛气氛，两者并存、不互相替代。
+ * Desktop 为宽屏 Spatial 构图：左主视觉区（氛围 + 判断地图），右局势栏。
  */
 export function SituationScreen({
   scenario,
@@ -41,6 +41,19 @@ export function SituationScreen({
     </MediaViewport>
   );
 
+  const atmosphere = (
+    <MediaViewport className="relative aspect-[16/8] w-full lg:aspect-[16/7]">
+      {/* 氛围视觉图：不替代判断地图，仅作比赛气氛 */}
+      <Image
+        src="/media/visual/situation-hero.png"
+        alt=""
+        fill
+        sizes="(min-width: 1024px) 620px, 100vw"
+        className="object-cover"
+      />
+    </MediaViewport>
+  );
+
   const metadata = (
     <MetadataStrip
       items={[
@@ -59,17 +72,29 @@ export function SituationScreen({
     />
   );
 
+  const titleBlock = (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-[13px] text-app-muted">{scenario.purpose}</p>
+      <h1 className="text-xl font-semibold leading-[1.28] text-app-text lg:text-2xl">
+        {scenario.title}
+      </h1>
+    </div>
+  );
+
+  // 紧凑事实：每条一行（label + detail 同段），避免“说明文档”纵向堆叠。
   const facts = (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <p className="text-[15px] font-semibold text-app-text">已知信息</p>
-      <ul className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-2">
         {scenario.situation.facts.map((fact) => (
-          <li key={fact.label} className="flex flex-col gap-0.5">
-            <span className="text-[13px] font-medium text-app-text">
-              {fact.label}
+          <li key={fact.label} className="flex gap-2 text-[13px] leading-relaxed">
+            <span aria-hidden="true" className="shrink-0 text-app-muted">
+              ·
             </span>
-            <span className="text-[13px] leading-relaxed text-app-muted">
-              {fact.detail}
+            <span>
+              <span className="font-medium text-app-text">{fact.label}</span>
+              {"　"}
+              <span className="text-app-muted">{fact.detail}</span>
             </span>
           </li>
         ))}
@@ -85,7 +110,7 @@ export function SituationScreen({
     <button
       type="button"
       onClick={onBegin}
-      className="h-12 rounded-md bg-app-text text-[15px] font-medium text-app-bg transition-colors hover:opacity-90"
+      className="h-12 w-full rounded-md bg-app-text text-[15px] font-medium text-app-bg transition-colors hover:opacity-90"
     >
       开始判断
     </button>
@@ -93,48 +118,30 @@ export function SituationScreen({
 
   return (
     <PageFrame family="spatial" eyebrow={`0${round + 1} · 局势`}>
-      {/* desktop ≥lg：左地图 + 右局势栏，充分用宽 */}
-      <div className="hidden gap-12 py-8 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <div className="flex flex-col gap-4">
+      {/* desktop ≥lg：左主视觉区（氛围 + 判断地图）| 右局势栏 */}
+      <div className="hidden gap-12 py-6 lg:grid lg:grid-cols-[minmax(0,7fr)_minmax(0,4fr)]">
+        <div className="flex flex-col gap-3">
           {metadata}
+          {atmosphere}
           {situationMap}
         </div>
-        <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-2">
-            <p className="text-[13px] text-app-muted">{scenario.purpose}</p>
-            <h1 className="text-2xl font-semibold leading-[1.28] text-app-text">
-              {scenario.title}
-            </h1>
-          </div>
-          {/* 氛围视觉图：不替代判断地图，仅作页面视觉元素 */}
-          <MediaViewport className="overflow-hidden">
-            <Image
-              src="/media/visual/situation-hero.png"
-              alt=""
-              width={640}
-              height={360}
-              className="block h-auto w-full"
-            />
-          </MediaViewport>
+        <div className="flex flex-col gap-5 pt-7">
+          {titleBlock}
           {facts}
-          <div className="pt-2">{beginButton}</div>
+          <div className="pt-1">{beginButton}</div>
         </div>
       </div>
 
-      {/* mobile：地图可读优先，再显示事实 */}
-      <div className="flex flex-col gap-6 py-6 lg:hidden">
+      {/* mobile：紧凑标题/比赛信息 → 核心视觉 → 判断地图 → 已知信息 → 开始判断 */}
+      <div className="flex flex-col gap-4 py-5 lg:hidden">
         <div className="flex flex-col gap-2">
-          <p className="text-[13px] text-app-muted">{scenario.purpose}</p>
-          <h1 className="text-2xl font-semibold leading-[1.28] text-app-text">
-            {scenario.title}
-          </h1>
-        </div>
-        <div className="flex flex-col gap-3">
+          {titleBlock}
           {metadata}
-          {situationMap}
         </div>
+        {atmosphere}
+        {situationMap}
         {facts}
-        <div className="pt-2">{beginButton}</div>
+        <div className="pt-1">{beginButton}</div>
       </div>
     </PageFrame>
   );

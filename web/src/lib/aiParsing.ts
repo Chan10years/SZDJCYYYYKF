@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CallIdSchema } from "@/domain/schemas";
-import type { ChallengeOutput } from "@/domain/types";
+import type { CallId, ChallengeOutput } from "@/domain/types";
 
 /**
  * Challenge 模型输出，不含 source（source 由响应路径决定）。
@@ -40,6 +40,27 @@ export function parseChallengeContent(
   }
   const result = ChallengeContentSchema.safeParse(json);
   return result.success ? result.data : null;
+}
+
+/**
+ * Challenge 语义归一化（与 buildFallbackChallenge 同一规则）：
+ * alternativeCall 是“AI 独立首选”，必须不同于用户 Initial Call；
+ * 模型若把用户选择复述为 alternativeCall，视为独立首选相同 → null。
+ * stance 由 alternativeCall 派生，避免模型输出自相矛盾。
+ */
+export function normalizeChallengeContent(
+  content: Omit<ChallengeOutput, "source">,
+  initialCall: CallId,
+): Omit<ChallengeOutput, "source"> {
+  const alternativeCall =
+    content.alternativeCall !== null && content.alternativeCall !== initialCall
+      ? content.alternativeCall
+      : null;
+  return {
+    ...content,
+    alternativeCall,
+    stance: alternativeCall === null ? "agree" : "challenge",
+  };
 }
 
 /**

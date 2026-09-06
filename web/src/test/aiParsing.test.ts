@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseChallengeContent, parseReportChooseContent } from "@/lib/aiParsing";
+import {
+  normalizeChallengeContent,
+  parseChallengeContent,
+  parseReportChooseContent,
+} from "@/lib/aiParsing";
 
 describe("parseChallengeContent", () => {
   it("parses a plain JSON object", () => {
@@ -56,6 +60,50 @@ describe("parseChallengeContent", () => {
       alternativeCall: null,
     });
     expect(parseChallengeContent(raw)).toBeNull();
+  });
+});
+
+describe("normalizeChallengeContent — alternativeCall 必须不同于用户 Initial Call", () => {
+  const base = {
+    acknowledge: "承接。",
+    blindspot: "盲点。",
+    question: "反问？",
+  };
+
+  it("Case A：用户 A、AI 独立首选 B → alternativeCall 保留 B，stance 为 challenge", () => {
+    expect(
+      normalizeChallengeContent(
+        { ...base, stance: "challenge", alternativeCall: "B" },
+        "A",
+      ),
+    ).toMatchObject({ alternativeCall: "B", stance: "challenge" });
+  });
+
+  it("Case B：用户 A、模型把用户选择复述为 alternativeCall → 归一化为 null + agree", () => {
+    expect(
+      normalizeChallengeContent(
+        { ...base, stance: "challenge", alternativeCall: "A" },
+        "A",
+      ),
+    ).toMatchObject({ alternativeCall: null, stance: "agree" });
+  });
+
+  it("alternativeCall 已为 null 时保持 null + agree", () => {
+    expect(
+      normalizeChallengeContent(
+        { ...base, stance: "agree", alternativeCall: null },
+        "A",
+      ),
+    ).toMatchObject({ alternativeCall: null, stance: "agree" });
+  });
+
+  it("模型给出分歧但 stance 误标 agree 时，stance 由 alternativeCall 派生", () => {
+    expect(
+      normalizeChallengeContent(
+        { ...base, stance: "agree", alternativeCall: "C" },
+        "A",
+      ),
+    ).toMatchObject({ alternativeCall: "C", stance: "challenge" });
   });
 });
 

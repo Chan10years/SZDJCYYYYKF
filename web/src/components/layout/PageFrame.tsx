@@ -15,15 +15,16 @@ type PageFrameProps = {
 };
 
 const FAMILY_WIDTH: Record<PageFamily, string> = {
-  standalone: "max-w-xl",
-  spatial: "max-w-3xl",
-  decision: "max-w-2xl lg:max-w-5xl",
-  editorial: "max-w-2xl",
-  analysis: "max-w-4xl",
+  standalone: "lg:max-w-[1056px]",
+  spatial: "lg:max-w-[1088px]",
+  decision: "lg:max-w-[1088px]",
+  editorial: "lg:max-w-[1088px]",
+  analysis: "lg:max-w-[1056px]",
 };
 
 /**
  * 页面骨架：统一外层宽度/留白 + 每页唯一的阶段 eyebrow。
+ * Desktop 目标内容宽度约 980–1100px；mobile 全宽（px-5）。
  * 视觉层级靠 typography 与留白，不额外提供卡片或边框。
  */
 export function PageFrame({
@@ -33,10 +34,12 @@ export function PageFrame({
 }: PageFrameProps) {
   return (
     <div
-      className={`mx-auto flex min-h-dvh w-full flex-col px-5 sm:px-6 ${FAMILY_WIDTH[family]}`}
+      className={`mx-auto flex min-h-dvh w-full flex-col px-5 sm:px-6 lg:px-0 ${FAMILY_WIDTH[family]}`}
     >
       {eyebrow ? (
-        <p className="pt-8 text-xs font-medium text-app-muted">{eyebrow}</p>
+        <p className="pt-5 text-xs font-medium text-app-muted lg:pt-6">
+          {eyebrow}
+        </p>
       ) : null}
       {children}
     </div>

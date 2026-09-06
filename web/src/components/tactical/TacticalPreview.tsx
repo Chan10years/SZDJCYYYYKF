@@ -45,8 +45,8 @@ export function TacticalPreview({
   const gridId = `tp-grid-${scenario.id}-${call}`;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="overflow-hidden rounded-lg border border-app-line bg-app-elevated p-1">
+    <div className="flex flex-col gap-2.5">
+      <div className="relative overflow-hidden rounded-lg border border-app-line bg-app-elevated p-1">
         <svg
           viewBox="0 0 100 100"
           className="block h-auto w-full"
@@ -147,28 +147,28 @@ export function TacticalPreview({
             </g>
           ))}
         </svg>
+
+        {/* 区域标签（thumb 隐藏）：压图左下，轻量底条，不占垂直空间 */}
+        {variant === "full" && spec.zones.length > 0 && (
+          <p className="absolute bottom-2.5 left-2.5 flex max-w-[85%] flex-wrap items-center gap-x-3 gap-y-1 rounded bg-black/55 px-2 py-1 text-[11px] text-app-text/90 backdrop-blur-[2px]">
+            {spec.zones.map((zone, i) => (
+              <span key={`${zone.kind}-label-${i}`} className="flex items-center gap-1.5">
+                <span
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{
+                    background: ZONE_KIND_COLOR[zone.kind] ?? "#98a2b1",
+                  }}
+                />
+                {zone.label}
+              </span>
+            ))}
+          </p>
+        )}
       </div>
 
-      {/* 地图下方的区域标签（thumb 隐藏）：legend 单行，去胶囊 */}
-      {variant === "full" && spec.zones.length > 0 && (
-        <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-app-muted">
-          {spec.zones.map((zone, i) => (
-            <span key={`${zone.kind}-label-${i}`} className="flex items-center gap-1.5">
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{
-                  background: ZONE_KIND_COLOR[zone.kind] ?? "#98a2b1",
-                }}
-              />
-              {zone.label}
-            </span>
-          ))}
-        </p>
-      )}
-
-      {/* 定性指标（thumb 隐藏）：紧凑编辑式，地图压过文字 */}
+      {/* 定性指标（thumb 隐藏）：轻量底部信息，地图压过文字 */}
       {variant === "full" && spec.metrics.length > 0 && (
-        <p className="text-[13px] leading-relaxed text-app-muted">
+        <p className="text-[12px] leading-relaxed text-app-muted">
           {spec.metrics.map((m, i) => (
             <span key={m.label}>
               {i > 0 ? " · " : ""}
@@ -179,7 +179,7 @@ export function TacticalPreview({
       )}
 
       {variant === "full" && (
-        <p className="border-t border-app-line pt-3 text-center font-mono text-[11px] text-app-muted">
+        <p className="font-mono text-[11px] text-app-muted">
           战术空间预览 · 非比赛结果预测
         </p>
       )}
