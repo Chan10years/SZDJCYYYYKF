@@ -1,7 +1,7 @@
 import type { Scenario } from "@/domain/types";
 
 /**
- * 正式真实 Scenario —— 三个真实职业比赛截点。
+ * 正式体验 Scenario —— 两个已核验职业比赛截点 + 一个练习参考截点。
  * 唯一事实来源：human-assets/specs/{HERO,LITE2,LITE3}_SPEC.md。
  *
  * 呈现边界（严格遵守 SPEC）：
@@ -11,9 +11,9 @@ import type { Scenario } from "@/domain/types";
  * - 坐标为 0..100 normalized 的最小合理表达，遵循 Mirage / Dust2 通行结构；
  *   无法可靠确定的点位停在最小表达，不编造精确位置。
  *
- * verified 状态：
- * - Hero / Lite2：事实与素材已核验 → true；
- * - Lite3：SPEC 明确“待最终人工核验” → false。
+ * verificationStatus 状态：
+ * - Hero / Lite2：事实与素材已核验 → verified；
+ * - Lite3：SPEC 明确“待最终人工核验” → practice。
  */
 export const realScenarios: Scenario[] = [
   // ============================= HERO =============================
@@ -21,7 +21,7 @@ export const realScenarios: Scenario[] = [
     id: "hero-spirit-falcons-mirage-r5",
     title: "A 区已破，兑现还是控图",
     purpose: "确定信息 vs 展开控图",
-    verified: true,
+    verificationStatus: "verified",
     source: {
       event: "IEM Cologne Major 2026",
       match: "Team Spirit vs Falcons",
@@ -36,6 +36,7 @@ export const realScenarios: Scenario[] = [
       alive: "3v2",
       objective: "zont1x 携带 C4 · A 侧 AWP 刚被清除",
       facts: [
+        { label: "比分", detail: "Spirit 0 : 4 Falcons" },
         { label: "局面", detail: "当前 3v2，剩余 0:47，zont1x 携带 C4" },
         { label: "已确认", detail: "A 侧 AWP（m0NESY）刚被 tN1R 击杀，A 区出现缺口" },
         { label: "站位", detail: "tN1R 位于 A 侧前沿，zont1x 与 sh1ro 控制中路 / 下水道" },
@@ -70,13 +71,13 @@ export const realScenarios: Scenario[] = [
       // 三人向 A 收缩汇合
       A: {
         routes: [
-          { playerId: "tN1R", points: [{ x: 30, y: 26 }, { x: 33, y: 24 }] },
-          { playerId: "zont1x", points: [{ x: 48, y: 52 }, { x: 42, y: 40 }, { x: 34, y: 26 }] },
-          { playerId: "sh1ro", points: [{ x: 56, y: 58 }, { x: 46, y: 42 }, { x: 35, y: 27 }] },
+          { playerId: "tN1R", points: [{ x: 63, y: 70 }, { x: 57, y: 73 }, { x: 51, y: 78 }] },
+          { playerId: "zont1x", points: [{ x: 38, y: 36 }, { x: 39, y: 45 }, { x: 43, y: 56 }, { x: 48, y: 67 }, { x: 51, y: 78 }] },
+          { playerId: "sh1ro", points: [{ x: 43, y: 38 }, { x: 44, y: 47 }, { x: 47, y: 58 }, { x: 50, y: 68 }, { x: 51, y: 78 }] },
         ],
         zones: [
-          { x: 33, y: 25, radius: 14, kind: "pressure", label: "A 区执行区" },
-          { x: 45, y: 42, radius: 11, kind: "information", label: "中路汇合带" },
+          { x: 51, y: 78, radius: 14, kind: "pressure", label: "A 区执行区" },
+          { x: 43, y: 55, radius: 11, kind: "information", label: "中路汇合带" },
         ],
         metrics: [
           { label: "信息确定性", value: "高" },
@@ -87,13 +88,13 @@ export const realScenarios: Scenario[] = [
       // 两路转 B：zont1x+sh1ro 走 B 二楼体系，tN1R 经 Market 包抄
       B: {
         routes: [
-          { playerId: "zont1x", points: [{ x: 48, y: 52 }, { x: 62, y: 60 }, { x: 74, y: 70 }] },
-          { playerId: "sh1ro", points: [{ x: 56, y: 58 }, { x: 66, y: 63 }, { x: 75, y: 71 }] },
-          { playerId: "tN1R", points: [{ x: 30, y: 26 }, { x: 44, y: 40 }, { x: 62, y: 58 }, { x: 76, y: 72 }] },
+          { playerId: "zont1x", points: [{ x: 38, y: 36 }, { x: 31, y: 34 }, { x: 25, y: 28 }, { x: 15, y: 20 }] },
+          { playerId: "sh1ro", points: [{ x: 43, y: 38 }, { x: 36, y: 35 }, { x: 28, y: 28 }, { x: 15, y: 20 }] },
+          { playerId: "tN1R", points: [{ x: 63, y: 70 }, { x: 60, y: 61 }, { x: 54, y: 52 }, { x: 46, y: 43 }, { x: 35, y: 34 }, { x: 25, y: 27 }, { x: 15, y: 20 }] },
         ],
         zones: [
-          { x: 76, y: 72, radius: 15, kind: "pressure", label: "B 区多向压力" },
-          { x: 60, y: 58, radius: 11, kind: "information", label: "转点通道" },
+          { x: 15, y: 20, radius: 15, kind: "pressure", label: "B 区多向压力" },
+          { x: 37, y: 35, radius: 11, kind: "information", label: "转点通道" },
         ],
         metrics: [
           { label: "信息确定性", value: "低" },
@@ -104,14 +105,14 @@ export const realScenarios: Scenario[] = [
       // 保持展开：不画进攻路线，仅淡分叉 + information zone
       C: {
         routes: [
-          { playerId: "tN1R", points: [{ x: 30, y: 26 }, { x: 31, y: 27 }] },
-          { playerId: "zont1x", points: [{ x: 48, y: 52 }, { x: 49, y: 53 }] },
-          { playerId: "sh1ro", points: [{ x: 56, y: 58 }, { x: 57, y: 59 }] },
+          { playerId: "tN1R", points: [{ x: 63, y: 70 }, { x: 64, y: 70 }] },
+          { playerId: "zont1x", points: [{ x: 38, y: 36 }, { x: 39, y: 37 }] },
+          { playerId: "sh1ro", points: [{ x: 43, y: 38 }, { x: 44, y: 39 }] },
         ],
         zones: [
-          { x: 33, y: 25, radius: 11, kind: "information", label: "A 方向仍开放" },
-          { x: 76, y: 72, radius: 11, kind: "information", label: "B 方向仍开放" },
-          { x: 50, y: 54, radius: 12, kind: "pressure", label: "中路控制" },
+          { x: 51, y: 78, radius: 11, kind: "information", label: "A 方向仍开放" },
+          { x: 15, y: 20, radius: 11, kind: "information", label: "B 方向仍开放" },
+          { x: 41, y: 38, radius: 12, kind: "pressure", label: "中路控制" },
         ],
         metrics: [
           { label: "信息获取", value: "高" },
@@ -153,9 +154,9 @@ export const realScenarios: Scenario[] = [
   // ============================= LITE 2 =============================
   {
     id: "lite2-g2-spirit-mirage-r34",
-    title: "双加时最终局的三向抉择",
+    title: "R34：16:17 的三向抉择",
     purpose: "欺骗收益 vs 带包安全",
-    verified: true,
+    verificationStatus: "verified",
     source: {
       event: "IEM Cologne Major 2026",
       match: "G2 vs Team Spirit",
@@ -205,13 +206,15 @@ export const realScenarios: Scenario[] = [
       // 8 号向 A 汇合，7/9 保持 A 前沿，重心在 A
       A: {
         routes: [
-          { playerId: "p8", points: [{ x: 22, y: 78 }, { x: 28, y: 52 }, { x: 32, y: 28 }] },
-          { playerId: "p7", points: [{ x: 31, y: 24 }, { x: 33, y: 25 }] },
-          { playerId: "p9", points: [{ x: 33, y: 22 }, { x: 34, y: 24 }] },
+          { playerId: "p8", points: [{ x: 85, y: 57 }, { x: 82, y: 62 }, { x: 76, y: 70 }, { x: 68, y: 80 }, { x: 60, y: 87 }, { x: 51, y: 90 }] },
+          { playerId: "p7", points: [{ x: 67, y: 77 }, { x: 67, y: 77 }] },
+          { playerId: "p9", points: [{ x: 62, y: 91 }, { x: 62, y: 91 }] },
+          { playerId: "p0", points: [{ x: 70, y: 37 }, { x: 70, y: 37 }] },
+          { playerId: "p6", points: [{ x: 31, y: 12 }, { x: 31, y: 12 }] },
         ],
         zones: [
-          { x: 33, y: 25, radius: 15, kind: "pressure", label: "A 区执行区" },
-          { x: 27, y: 52, radius: 10, kind: "information", label: "带包汇合线" },
+          { x: 51, y: 90, radius: 15, kind: "pressure", label: "A 区执行区" },
+          { x: 70, y: 65, radius: 10, kind: "information", label: "带包汇合线" },
         ],
         metrics: [
           { label: "A 侧兵力", value: "高" },
@@ -222,15 +225,15 @@ export const realScenarios: Scenario[] = [
       // 7/9 施压 A，8 带包转 B，0 中路衔接，6 从 B Apartments 进 B
       B: {
         routes: [
-          { playerId: "p7", points: [{ x: 31, y: 24 }, { x: 34, y: 25 }] },
-          { playerId: "p9", points: [{ x: 33, y: 22 }, { x: 35, y: 24 }] },
-          { playerId: "p8", points: [{ x: 22, y: 78 }, { x: 48, y: 74 }, { x: 72, y: 71 }] },
-          { playerId: "p0", points: [{ x: 50, y: 50 }, { x: 62, y: 60 }, { x: 74, y: 70 }] },
-          { playerId: "p6", points: [{ x: 68, y: 64 }, { x: 74, y: 70 }] },
+          { playerId: "p7", points: [{ x: 67, y: 77 }, { x: 67, y: 77 }] },
+          { playerId: "p9", points: [{ x: 62, y: 91 }, { x: 62, y: 91 }] },
+          { playerId: "p8", points: [{ x: 85, y: 57 }, { x: 84, y: 50 }, { x: 80, y: 43 }, { x: 73, y: 36 }, { x: 64, y: 29 }, { x: 53, y: 25 }, { x: 40, y: 23 }, { x: 17, y: 23 }] },
+          { playerId: "p0", points: [{ x: 70, y: 37 }, { x: 65, y: 32 }, { x: 57, y: 27 }, { x: 47, y: 24 }, { x: 35, y: 23 }, { x: 17, y: 23 }] },
+          { playerId: "p6", points: [{ x: 31, y: 12 }, { x: 30, y: 15 }, { x: 26, y: 19 }, { x: 22, y: 21 }, { x: 17, y: 23 }] },
         ],
         zones: [
-          { x: 33, y: 25, radius: 12, kind: "pressure", label: "A 侧真实施压" },
-          { x: 74, y: 71, radius: 14, kind: "pressure", label: "B 区窗口" },
+          { x: 67, y: 77, radius: 12, kind: "pressure", label: "A 侧真实施压" },
+          { x: 17, y: 23, radius: 14, kind: "pressure", label: "B 区窗口" },
         ],
         metrics: [
           { label: "欺骗强度", value: "高" },
@@ -238,18 +241,22 @@ export const realScenarios: Scenario[] = [
           { label: "带包安全", value: "低" },
         ],
       },
-      // 7/9 撤回向 8 靠拢，再五人同步向 B
+      // 第一阶段：7/9/0 收缩到带包者附近，6 保持 B 侧前沿；第二阶段：五人统一执行 B。
       C: {
         routes: [
-          { playerId: "p7", points: [{ x: 31, y: 24 }, { x: 28, y: 46 }, { x: 30, y: 66 }] },
-          { playerId: "p9", points: [{ x: 33, y: 22 }, { x: 30, y: 46 }, { x: 32, y: 66 }] },
-          { playerId: "p8", points: [{ x: 22, y: 78 }, { x: 48, y: 74 }, { x: 72, y: 71 }] },
-          { playerId: "p0", points: [{ x: 50, y: 50 }, { x: 62, y: 60 }, { x: 73, y: 70 }] },
-          { playerId: "p6", points: [{ x: 68, y: 64 }, { x: 74, y: 70 }] },
+          { playerId: "p7", phaseBreak: 3, points: [{ x: 67, y: 77 }, { x: 74, y: 70 }, { x: 79, y: 62 }, { x: 80, y: 55 }, { x: 72, y: 46 }, { x: 64, y: 38 }, { x: 52, y: 32 }, { x: 38, y: 27 }, { x: 17, y: 23 }] },
+          { playerId: "p9", phaseBreak: 4, points: [{ x: 62, y: 91 }, { x: 68, y: 81 }, { x: 75, y: 70 }, { x: 80, y: 61 }, { x: 80, y: 55 }, { x: 72, y: 46 }, { x: 64, y: 38 }, { x: 52, y: 32 }, { x: 38, y: 27 }, { x: 17, y: 23 }] },
+          { playerId: "p8", phaseBreak: 2, points: [{ x: 85, y: 57 }, { x: 82, y: 55 }, { x: 80, y: 54 }, { x: 70, y: 45 }, { x: 61, y: 37 }, { x: 51, y: 31 }, { x: 37, y: 26 }, { x: 17, y: 23 }] },
+          { playerId: "p0", phaseBreak: 2, points: [{ x: 70, y: 37 }, { x: 76, y: 48 }, { x: 79, y: 53 }, { x: 71, y: 45 }, { x: 62, y: 38 }, { x: 52, y: 32 }, { x: 39, y: 27 }, { x: 17, y: 23 }] },
+          { playerId: "p6", phaseBreak: 1, points: [{ x: 31, y: 12 }, { x: 31, y: 12 }, { x: 30, y: 15 }, { x: 26, y: 19 }, { x: 22, y: 21 }, { x: 17, y: 23 }] },
+        ],
+        movementPhases: [
+          { id: "regroup", label: "第一阶段：收缩 / 重组" },
+          { id: "execute", label: "第二阶段：统一执行 B" },
         ],
         zones: [
-          { x: 30, y: 66, radius: 12, kind: "information", label: "重组汇合区" },
-          { x: 74, y: 71, radius: 14, kind: "pressure", label: "B 区同步执行" },
+          { x: 81, y: 55, radius: 10, kind: "information", label: "带包者周围重组区" },
+          { x: 17, y: 23, radius: 14, kind: "pressure", label: "B 区同步执行" },
         ],
         metrics: [
           { label: "兵力集中", value: "高" },
@@ -293,8 +300,8 @@ export const realScenarios: Scenario[] = [
     id: "lite3-spirit-falcons-dust2-r20",
     title: "B 门外：守位、穿烟还是后撤",
     purpose: "资源与站位安全 vs 主动创造机会",
-    // SPEC 标记：待最终人工核验后 verified:true。
-    verified: false,
+    // SPEC 标记：待最终人工核验后才能进入 verified。
+    verificationStatus: "practice",
     source: {
       event: "IEM Cologne Major 2026",
       match: "Team Spirit vs Falcons",
@@ -343,13 +350,14 @@ export const realScenarios: Scenario[] = [
       // 8 守 B 门，0/7/9 向 B 门外围协同（不冲入）
       A: {
         routes: [
-          { playerId: "karrigan", points: [{ x: 60, y: 40 }, { x: 60, y: 41 }] },
-          { playerId: "ct7", points: [{ x: 44, y: 50 }, { x: 52, y: 44 }, { x: 57, y: 41 }] },
-          { playerId: "ct9", points: [{ x: 40, y: 30 }, { x: 50, y: 36 }, { x: 57, y: 40 }] },
+          { playerId: "karrigan", points: [{ x: 27, y: 18 }, { x: 27, y: 18 }] },
+          { playerId: "ct7", points: [{ x: 48, y: 35 }, { x: 43, y: 31 }, { x: 37, y: 27 }, { x: 31, y: 23 }] },
+          { playerId: "ct9", points: [{ x: 58, y: 22 }, { x: 51, y: 23 }, { x: 43, y: 24 }, { x: 34, y: 23 }] },
+          { playerId: "ct0", points: [{ x: 46, y: 32 }, { x: 41, y: 29 }, { x: 36, y: 26 }, { x: 31, y: 23 }] },
         ],
         zones: [
-          { x: 60, y: 40, radius: 12, kind: "information", label: "B 门协同位" },
-          { x: 74, y: 46, radius: 13, kind: "pressure", label: "B 区进攻压力" },
+          { x: 27, y: 18, radius: 12, kind: "information", label: "B 门协同位" },
+          { x: 20, y: 17, radius: 13, kind: "pressure", label: "B 区进攻压力" },
         ],
         metrics: [
           { label: "资源安全", value: "高" },
@@ -357,16 +365,60 @@ export const realScenarios: Scenario[] = [
           { label: "协同等待", value: "高" },
         ],
       },
-      // 8 先手穿烟进 B，0/7/9 随后快速跟进（节奏差）
+      // 第一阶段：8 先手穿烟制造 B 区压力；第二阶段：0/7/9 随后跟进协同推进。
       B: {
         routes: [
-          { playerId: "karrigan", points: [{ x: 60, y: 40 }, { x: 66, y: 43 }, { x: 72, y: 46 }] },
-          { playerId: "ct7", points: [{ x: 44, y: 50 }, { x: 56, y: 45 }, { x: 68, y: 44 }] },
-          { playerId: "ct9", points: [{ x: 40, y: 30 }, { x: 54, y: 38 }, { x: 68, y: 44 }] },
+          {
+            playerId: "karrigan",
+            phaseBreak: 2,
+            points: [
+              { x: 27, y: 18 },
+              { x: 25, y: 19 },
+              { x: 22, y: 18 },
+              { x: 22, y: 18 },
+            ],
+          },
+          {
+            playerId: "ct7",
+            phaseBreak: 1,
+            points: [
+              { x: 48, y: 35 },
+              { x: 48, y: 35 },
+              { x: 43, y: 31 },
+              { x: 36, y: 26 },
+              { x: 28, y: 22 },
+            ],
+          },
+          {
+            playerId: "ct9",
+            phaseBreak: 1,
+            points: [
+              { x: 58, y: 22 },
+              { x: 58, y: 22 },
+              { x: 50, y: 24 },
+              { x: 41, y: 25 },
+              { x: 28, y: 22 },
+            ],
+          },
+          {
+            playerId: "ct0",
+            phaseBreak: 1,
+            points: [
+              { x: 46, y: 32 },
+              { x: 46, y: 32 },
+              { x: 41, y: 29 },
+              { x: 35, y: 25 },
+              { x: 28, y: 22 },
+            ],
+          },
+        ],
+        movementPhases: [
+          { id: "lead", label: "第一阶段：先手穿烟 / 制造 B 区压力" },
+          { id: "follow", label: "第二阶段：队友随后跟进 / 协同推进" },
         ],
         zones: [
-          { x: 64, y: 42, radius: 10, kind: "risk", label: "穿烟暴露带" },
-          { x: 74, y: 46, radius: 13, kind: "pressure", label: "B 区反清窗口" },
+          { x: 25, y: 19, radius: 10, kind: "risk", label: "穿烟暴露带" },
+          { x: 20, y: 17, radius: 13, kind: "pressure", label: "B 区反清窗口" },
         ],
         metrics: [
           { label: "主动性", value: "高" },
@@ -377,13 +429,14 @@ export const realScenarios: Scenario[] = [
       // 8 后撤，0/7/9 收拢重组（先收缩，不直接冲 B）
       C: {
         routes: [
-          { playerId: "karrigan", points: [{ x: 60, y: 40 }, { x: 52, y: 44 }, { x: 46, y: 46 }] },
-          { playerId: "ct7", points: [{ x: 44, y: 50 }, { x: 46, y: 47 }] },
-          { playerId: "ct9", points: [{ x: 40, y: 30 }, { x: 44, y: 40 }, { x: 46, y: 45 }] },
+          { playerId: "karrigan", points: [{ x: 27, y: 18 }, { x: 32, y: 23 }, { x: 38, y: 28 }, { x: 44, y: 31 }] },
+          { playerId: "ct7", points: [{ x: 48, y: 35 }, { x: 46, y: 32 }] },
+          { playerId: "ct9", points: [{ x: 58, y: 22 }, { x: 52, y: 27 }, { x: 46, y: 31 }] },
+          { playerId: "ct0", points: [{ x: 46, y: 32 }, { x: 46, y: 31 }] },
         ],
         zones: [
-          { x: 46, y: 46, radius: 12, kind: "information", label: "重组汇合区" },
-          { x: 74, y: 46, radius: 13, kind: "pressure", label: "B 区进攻压力" },
+          { x: 46, y: 31, radius: 12, kind: "information", label: "重组汇合区" },
+          { x: 20, y: 17, radius: 13, kind: "pressure", label: "B 区进攻压力" },
         ],
         metrics: [
           { label: "阵型完整性", value: "高" },

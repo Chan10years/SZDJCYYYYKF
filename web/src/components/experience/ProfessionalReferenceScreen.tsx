@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Scenario } from "@/domain/types";
 import { PageFrame } from "@/components/layout/PageFrame";
 import { MediaViewport } from "@/components/layout/MediaViewport";
+import { getScenarioStatusCopy } from "@/domain/scenarioStatus";
 
 type ProfessionalReferenceScreenProps = {
   scenario: Scenario;
@@ -22,12 +23,7 @@ export function ProfessionalReferenceScreen({
   const [videoFailed, setVideoFailed] = useState(false);
   const pro = scenario.professional;
   const showVideo = !!pro.clipSrc && !videoFailed;
-  const verified = scenario.verified;
-  // 未核验（Practice Fixture）时，不得使用“真实比赛”“历史上真实发生”等措辞。
-  const title = verified ? "真实职业路径" : "练习路径参考";
-  const subtitle = verified
-    ? "历史上真实发生的一条职业路径，仅供参考"
-    : "Practice Reference · 尚未进行正式比赛核验";
+  const statusCopy = getScenarioStatusCopy(scenario.verificationStatus);
 
   const media = showVideo ? (
     <MediaViewport>
@@ -45,14 +41,14 @@ export function ProfessionalReferenceScreen({
   const analysis = (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <p className="text-[12px] text-app-muted">实际路径</p>
+        <p className="text-[12px] text-app-muted">{statusCopy.pathHeading}</p>
         <p className="text-[15px] font-semibold leading-snug text-app-text">
           {pro.pathLabel}
         </p>
       </div>
 
       <div className="flex flex-col gap-1">
-        <p className="text-[12px] text-app-muted">历史结果</p>
+        <p className="text-[12px] text-app-muted">{statusCopy.outcomeHeading}</p>
         <p className="text-[13px] leading-relaxed text-app-muted">
           {pro.outcome}
         </p>
@@ -75,9 +71,7 @@ export function ProfessionalReferenceScreen({
       </div>
 
       <p className="text-xs leading-relaxed text-app-muted">
-        {verified
-          ? "这是历史上真实发生的一条职业路径，不是唯一正确答案。"
-          : "这是一条练习参考路径，尚未进行正式比赛核验，不是唯一正确答案。"}
+        {statusCopy.note}
       </p>
 
       <div className="pt-1">
@@ -93,12 +87,12 @@ export function ProfessionalReferenceScreen({
   );
 
   return (
-    <PageFrame family="editorial" eyebrow="06 · 职业参考">
+    <PageFrame family="editorial" eyebrow={`06 · ${statusCopy.shortLabel}参考`}>
       <header className="pt-4">
         <h1 className="text-xl font-semibold leading-[1.28] text-app-text lg:text-2xl">
-          {title}
+          {statusCopy.title}
         </h1>
-        <p className="mt-1 text-[13px] text-app-muted">{subtitle}</p>
+        <p className="mt-1 text-[13px] text-app-muted">{statusCopy.subtitle}</p>
       </header>
 
       {/* desktop ≥lg 且有视频：视频大画面左 + 分析右 */}

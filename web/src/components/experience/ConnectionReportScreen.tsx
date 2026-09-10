@@ -16,9 +16,6 @@ type ConnectionReportScreenProps = {
   onReset: () => void;
 };
 
-const SMALL_SAMPLE_NOTE =
-  "以下分析仅基于本次 3 个案例，用于观察当前体验中的决策变化，不代表稳定人格或能力评估。";
-
 type Observation = { text: string; source: "live" | "fallback" };
 
 /** 极轻量 AI annotation glyph：结论区锚点，非插画。 */
@@ -92,17 +89,9 @@ export function ConnectionReportScreen({
     };
   }, [rounds]);
 
-  // 从所有 Scenario 收集 Reason label，用于展示理由频率。
-  const reasonLabels = new Map<string, string>();
-  for (const scenario of scenarios) {
-    for (const reason of scenario.reasonOptions) {
-      reasonLabels.set(reason.id, reason.label);
-    }
-  }
-
-  const topReasons = Object.entries(stats.reasonFrequency)
-    .filter(([, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1]);
+  const topReasons = stats.reasonFrequency
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => b.count - a.count);
 
   // 两个核心数字：直接回答产品的两个核心问题。
   // 指标一：AI 分歧后发生调整的比例；分母为 0 时不得显示 0%，改用安全文案。
@@ -111,9 +100,15 @@ export function ConnectionReportScreen({
     ? Math.round((stats.acceptanceCount / stats.disagreementCount) * 100)
     : null;
   // 指标二：最终判断与职业路径趋同的比例。
-  const finalAlignmentRate = Math.round(
-    (stats.finalProfessionalAlignmentCount / stats.totalRounds) * 100,
-  );
+  const finalAlignmentRate =
+    stats.verifiedReferenceRounds > 0
+      ? Math.round(
+          (stats.finalProfessionalAlignmentCount /
+            stats.verifiedReferenceRounds) *
+            100,
+        )
+      : null;
+  const smallSampleNote = `以下分析仅基于本次 ${stats.totalRounds} 个案例，用于观察当前体验中的决策变化，不代表稳定人格或能力评估。`;
 
   return (
     <PageFrame family="analysis" eyebrow="08 · 连接报告">
@@ -123,7 +118,7 @@ export function ConnectionReportScreen({
             从单局，到模式。
           </h1>
           <p className="mt-1 text-[13px] text-app-muted">
-            看看你的判断如何与 AI 和职业路径发生连接。
+            看看你的判断如何与 AI 和参考路径发生连接。
           </p>
         </header>
 
@@ -163,27 +158,45 @@ export function ConnectionReportScreen({
             </div>
             <div aria-hidden="true" className="w-px bg-app-line" />
             <div>
-              <p className="font-mono text-[2.75rem] font-semibold leading-none tabular-nums text-app-text lg:text-[3.25rem]">
-                {finalAlignmentRate}%
-              </p>
-              <p className="mt-2.5 text-[13px] leading-relaxed text-app-muted">
-                最终判断与职业路径趋同（
-                <Num>
-                  {stats.finalProfessionalAlignmentCount}/{stats.totalRounds}
-                </Num>
-                ）
-              </p>
+              {finalAlignmentRate !== null ? (
+                <>
+                  <p className="font-mono text-[2.75rem] font-semibold leading-none tabular-nums text-app-text lg:text-[3.25rem]">
+                    {finalAlignmentRate}%
+                  </p>
+                  <p className="mt-2.5 text-[13px] leading-relaxed text-app-muted">
+                    最终判断与已核验职业路径趋同（
+                    <Num>
+                      {stats.finalProfessionalAlignmentCount}/
+                      {stats.verifiedReferenceRounds}
+                    </Num>
+                    ）
+                  </p>
+                </>
+              ) : (
+                <p className="text-[15px] leading-[1.7] text-app-text">
+                  本次没有可用于职业路径趋同统计的已核验案例。
+                </p>
+              )}
             </div>
           </div>
           {topReasons.length > 0 ? (
             <p className="mt-5 text-[12px] leading-relaxed text-app-muted">
               依据使用：
-              {topReasons.map(([id, count], i) => (
-                <span key={id}>
+              {topReasons.map(({ scenarioId, reasonId, count }, i) => {
+                const scenario = scenarios.find((item) => item.id === scenarioId);
+                const label = scenario?.reasonOptions.find(
+                  (reason) => reason.id === reasonId,
+                )?.label ?? reasonId;
+                const roundLabel = scenario
+                  ? `R${scenarios.indexOf(scenario) + 1} `
+                  : "";
+                return (
+                <span key={`${scenarioId}:${reasonId}`}>
                   {i > 0 ? " · " : ""}
-                  {reasonLabels.get(id) ?? id} <Num>×{count}</Num>
+                  {roundLabel}{label} <Num>×{count}</Num>
                 </span>
-              ))}
+                );
+              })}
             </p>
           ) : null}
         </section>
@@ -204,7 +217,7 @@ export function ConnectionReportScreen({
             )}
           </div>
           <p className="mt-5 text-xs leading-relaxed text-app-muted">
-            {SMALL_SAMPLE_NOTE}
+            {smallSampleNote}
           </p>
         </section>
 

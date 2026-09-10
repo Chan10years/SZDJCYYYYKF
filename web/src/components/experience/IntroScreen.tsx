@@ -64,7 +64,7 @@ export function IntroScreen({ onStart }: IntroScreenProps) {
             <span aria-hidden="true">→</span>
           </button>
           <p className="text-center text-xs text-white/55 sm:text-left">
-            3 个案例 · 3 局体验 · 真实职业参考
+            3 个案例 · 2 局已核验 · 1 局练习参考
           </p>
         </div>
       </div>

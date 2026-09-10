@@ -6,7 +6,7 @@ import { realScenarios } from "./scenarios.real";
 export { fixtureScenarios };
 
 /**
- * 正式体验用 Scenario：三个真实职业比赛截点。
+ * 正式体验用 Scenario：两个已核验职业比赛截点 + 一个练习参考截点。
  * Fixture 仅保留于测试与无素材开发，不进入正式运行。
  */
 export const scenarios = realScenarios.map((scenario) =>

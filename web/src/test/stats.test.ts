@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { calculateConnectionStats } from "@/domain/stats";
 import type { RoundResult } from "@/domain/types";
+import { scenarios } from "@/data/scenarios";
 
 const rounds: RoundResult[] = [
   {
-    scenarioId: "s1",
+    scenarioId: scenarios[0].id,
     initialCall: "A",
     reasonIds: ["known_position"],
     aiStance: "challenge",
@@ -16,7 +17,7 @@ const rounds: RoundResult[] = [
     completedAt: "2026-09-05T12:00:00.000Z",
   },
   {
-    scenarioId: "s2",
+    scenarioId: scenarios[1].id,
     initialCall: "B",
     reasonIds: ["numbers_advantage", "time_pressure"],
     aiStance: "challenge",
@@ -28,7 +29,7 @@ const rounds: RoundResult[] = [
     completedAt: "2026-09-05T12:01:00.000Z",
   },
   {
-    scenarioId: "s3",
+    scenarioId: scenarios[2].id,
     initialCall: "C",
     reasonIds: ["resource_preservation"],
     aiStance: "agree",
@@ -48,16 +49,25 @@ describe("calculateConnectionStats", () => {
       disagreementCount: 2,
       acceptanceCount: 1,
       persistenceCount: 1,
-      initialProfessionalAlignmentCount: 1,
-      finalProfessionalAlignmentCount: 2,
+      verifiedReferenceRounds: 2,
+      initialProfessionalAlignmentCount: 0,
+      finalProfessionalAlignmentCount: 1,
     });
   });
 
   it("counts selected reasons", () => {
     const stats = calculateConnectionStats(rounds);
-    expect(stats.reasonFrequency.known_position).toBe(1);
-    expect(stats.reasonFrequency.numbers_advantage).toBe(1);
-    expect(stats.reasonFrequency.time_pressure).toBe(1);
-    expect(stats.reasonFrequency.resource_preservation).toBe(1);
+    expect(stats.reasonFrequency).toEqual(
+      expect.arrayContaining([
+        { scenarioId: scenarios[0].id, reasonId: "known_position", count: 1 },
+        { scenarioId: scenarios[1].id, reasonId: "numbers_advantage", count: 1 },
+        { scenarioId: scenarios[1].id, reasonId: "time_pressure", count: 1 },
+        {
+          scenarioId: scenarios[2].id,
+          reasonId: "resource_preservation",
+          count: 1,
+        },
+      ]),
+    );
   });
 });

@@ -63,6 +63,7 @@ describe("ProfessionalReferenceScreen — practice fixture copy", () => {
     expect(screen.queryByText("真实职业路径")).not.toBeInTheDocument();
     expect(screen.queryByText(/历史上真实发生/)).not.toBeInTheDocument();
     expect(screen.getByText(/练习路径参考/)).toBeInTheDocument();
+    expect(screen.getByText("06 · 练习参考")).toBeInTheDocument();
     expect(
       screen.getAllByText(/尚未进行正式比赛核验/).length,
     ).toBeGreaterThan(0);
@@ -88,7 +89,7 @@ describe("TacticalPreviewScreen — reference entry copy", () => {
   });
 
   it("shows the real professional entry for a verified scenario", () => {
-    const verified = { ...scenario, verified: true };
+    const verified = { ...scenario, verificationStatus: "verified" as const };
     render(
       <TacticalPreviewScreen
         scenario={verified}

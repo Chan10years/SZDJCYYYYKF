@@ -55,14 +55,16 @@ export function eligibleObservationIds(
   } else {
     ids.push("persistence");
   }
-  if (
-    stats.finalProfessionalAlignmentCount > stats.initialProfessionalAlignmentCount
-  ) {
-    ids.push("alignment_progress");
-  } else if (
-    stats.finalProfessionalAlignmentCount === stats.initialProfessionalAlignmentCount
-  ) {
-    ids.push("alignment_stable");
+  if (stats.verifiedReferenceRounds > 0) {
+    if (
+      stats.finalProfessionalAlignmentCount > stats.initialProfessionalAlignmentCount
+    ) {
+      ids.push("alignment_progress");
+    } else if (
+      stats.finalProfessionalAlignmentCount === stats.initialProfessionalAlignmentCount
+    ) {
+      ids.push("alignment_stable");
+    }
   }
   // final < initial 时不允许任何 alignment 候选。
   return ids;

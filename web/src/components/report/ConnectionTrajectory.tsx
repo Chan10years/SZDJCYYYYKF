@@ -2,6 +2,7 @@
 
 import type { CallId, RoundResult } from "@/domain/types";
 import { scenarios } from "@/data/scenarios";
+import { getScenarioStatusCopy } from "@/domain/scenarioStatus";
 
 type RowStatus = "调整" | "坚持" | "一致";
 
@@ -13,11 +14,15 @@ type Row = {
   professionalCall: CallId;
   status: RowStatus;
   professionalLabel: string;
+  referenceLabel: string;
 };
 
 function toTrajectoryRows(rounds: RoundResult[]): Row[] {
   return rounds.map((round, index) => {
     const scenario = scenarios.find((s) => s.id === round.scenarioId);
+    const statusCopy = getScenarioStatusCopy(
+      scenario?.verificationStatus ?? "draft",
+    );
     const hasDisagreement =
       round.aiAlternativeCall !== null &&
       round.aiAlternativeCall !== round.initialCall;
@@ -34,6 +39,7 @@ function toTrajectoryRows(rounds: RoundResult[]): Row[] {
       professionalCall: round.professionalCall,
       status,
       professionalLabel: scenario?.professional.pathLabel ?? "职业路径参考",
+      referenceLabel: statusCopy.shortLabel,
     };
   });
 }
@@ -117,7 +123,9 @@ export function ConnectionTrajectory({ rounds }: { rounds: RoundResult[] }) {
         );
         const pro = (
           <p className="text-[12px] leading-relaxed text-app-muted">
-            <span className="text-app-pro">职业 {row.professionalCall}</span>
+            <span className="text-app-pro">
+              {row.referenceLabel} {row.professionalCall}
+            </span>
             {" · "}
             {row.professionalLabel}
           </p>

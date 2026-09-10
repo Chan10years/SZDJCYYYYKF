@@ -3,6 +3,7 @@
 import type { CallId, ChallengeOutput, Scenario } from "@/domain/types";
 import { TacticalPreview } from "@/components/tactical/TacticalPreview";
 import { PageFrame } from "@/components/layout/PageFrame";
+import { getScenarioStatusCopy } from "@/domain/scenarioStatus";
 
 type RoundReviewScreenProps = {
   scenario: Scenario;
@@ -31,6 +32,7 @@ export function RoundReviewScreen({
   const finalOption = scenario.calls.find((c) => c.id === finalCall);
   const challengeAppliesToFinal = finalCall === initialCall;
   const pro = scenario.professional;
+  const statusCopy = getScenarioStatusCopy(scenario.verificationStatus);
 
   const userLabel = (
     <p className="text-[12px] font-medium text-app-user">
@@ -40,7 +42,7 @@ export function RoundReviewScreen({
 
   const proLabel = (
     <p className="text-[12px] font-medium text-app-pro">
-      职业路径参考 · Call {pro.call}
+      {statusCopy.referenceLabel} · Call {pro.call}
     </p>
   );
 
@@ -141,7 +143,7 @@ export function RoundReviewScreen({
     <PageFrame family="editorial" eyebrow="07 · 单局复盘">
       <header className="pt-4">
         <h1 className="text-xl font-semibold leading-[1.28] text-app-text lg:text-2xl">
-          你的判断 <span className="text-app-muted">vs</span> 职业路径
+          你的判断 <span className="text-app-muted">vs</span> 参考路径
         </h1>
         <p className="mt-1 text-[13px] text-app-muted">
           同一局面，不同处理。并排对照，不评价对错。

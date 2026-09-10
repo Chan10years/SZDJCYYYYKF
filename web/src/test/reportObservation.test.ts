@@ -5,9 +5,10 @@ import {
   resolveReportObservation,
 } from "@/domain/reportObservation";
 import { calculateConnectionStats } from "@/domain/stats";
+import { realScenarios } from "@/data/scenarios.real";
 import type { CallId, RoundResult } from "@/domain/types";
 
-// 会话 1：2 次分歧，1 采纳 1 坚持（mixed）→ 可选 mixed + alignment_stable
+// 会话 1：2 次分歧，1 采纳 1 坚持（mixed），使用已核验 Scenario。
 function makeMixedRounds(): RoundResult[] {
   return [
     makeRound("A", "B", true), // 采纳
@@ -16,7 +17,7 @@ function makeMixedRounds(): RoundResult[] {
   ];
 }
 
-// 会话 2：3 次分歧全采纳 → 可选 acceptance + alignment_stable
+// 会话 2：3 次分歧全采纳 → 可选 acceptance + alignment_stable。
 function makeAllAcceptRounds(): RoundResult[] {
   return [
     makeRound("A", "B", true),
@@ -29,6 +30,7 @@ function makeRound(
   initialCall: CallId,
   alternativeCall: CallId | null,
   accepted: boolean,
+  professionalCall: CallId = "A",
 ): RoundResult {
   const finalCall =
     alternativeCall === null
@@ -36,10 +38,8 @@ function makeRound(
       : accepted
         ? alternativeCall
         : initialCall;
-  // A 局用 fixture-hero（职业路径 A），其余用 fixture-lite-3（职业路径 C）
-  const useHero = initialCall === "A";
   return {
-    scenarioId: useHero ? "fixture-hero" : "fixture-lite-3",
+    scenarioId: realScenarios[0].id,
     initialCall,
     reasonIds: ["resource_preservation"],
     aiStance: alternativeCall === null ? "agree" : "challenge",
@@ -47,7 +47,7 @@ function makeRound(
     aiResponseSource: "live",
     finalCall,
     changedAfterAI: accepted && alternativeCall !== null,
-    professionalCall: useHero ? "A" : "C",
+    professionalCall,
     completedAt: "2026-09-05T12:00:00.000Z",
   };
 }
@@ -70,9 +70,9 @@ describe("eligibleObservationIds", () => {
 
   it("offers alignment_progress only when final alignment exceeded initial", () => {
     const rounds = [
-      makeRound("B", "C", true),
-      makeRound("B", "C", true),
-      makeRound("A", "B", true),
+      makeRound("B", "C", true, "C"),
+      makeRound("B", "C", true, "C"),
+      makeRound("A", "B", true, "C"),
     ];
     const ids = eligibleObservationIds(calculateConnectionStats(rounds));
     expect(ids).toContain("alignment_progress");
@@ -95,6 +95,19 @@ describe("eligibleObservationIds", () => {
     const ids = eligibleObservationIds(stats);
     expect(ids).not.toContain("alignment_progress");
     expect(ids).not.toContain("alignment_stable");
+  });
+
+  it("does not offer professional alignment claims when all references are practice", () => {
+    const practiceRound = {
+      ...makeRound("A", null, true),
+      scenarioId: realScenarios[2].id,
+    };
+    const stats = calculateConnectionStats([practiceRound]);
+    const ids = eligibleObservationIds(stats);
+    expect(stats.verifiedReferenceRounds).toBe(0);
+    expect(ids).not.toContain("alignment_progress");
+    expect(ids).not.toContain("alignment_stable");
+    expect(resolveReportObservation("alignment_stable", stats)).toBeNull();
   });
 });
 

@@ -3,7 +3,7 @@ import type { Scenario } from "@/domain/types";
 /**
  * 开发用 Fixture，仅供测试与开发验证。
  * 规则：
- * - verified 均为 false；
+ * - verificationStatus 均为 practice；
  * - 赛事/比赛名显式包含 `Practice Fixture`；
  * - 三局冲突类型互不相同；
  * - 每局正好 3 个 Calls；
@@ -15,7 +15,7 @@ export const fixtureScenarios: Scenario[] = [
     id: "fixture-hero",
     title: "A 区确定性 vs B 区机会",
     purpose: "确定信息 vs 未知机会",
-    verified: false,
+    verificationStatus: "practice",
     source: {
       event: "Practice Fixture — Hero",
       match: "Practice Fixture — 练习赛",
@@ -173,7 +173,7 @@ export const fixtureScenarios: Scenario[] = [
     id: "fixture-lite-2",
     title: "人数优势 vs 时间压力",
     purpose: "人数优势 vs 时间压力",
-    verified: false,
+    verificationStatus: "practice",
     source: {
       event: "Practice Fixture — Lite 2",
       match: "Practice Fixture — 练习赛",
@@ -315,7 +315,7 @@ export const fixtureScenarios: Scenario[] = [
     id: "fixture-lite-3",
     title: "资源安全 vs 主动创造机会",
     purpose: "资源安全 vs 主动创造机会",
-    verified: false,
+    verificationStatus: "practice",
     source: {
       event: "Practice Fixture — Lite 3",
       match: "Practice Fixture — 练习赛",

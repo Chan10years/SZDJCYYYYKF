@@ -22,6 +22,12 @@ export const ExperiencePhaseSchema = z.enum([
   "summary",
 ]);
 
+export const ScenarioVerificationStatusSchema = z.enum([
+  "draft",
+  "practice",
+  "verified",
+]);
+
 export const PointSchema = z.object({
   x: z.number().min(0).max(100),
   y: z.number().min(0).max(100),
@@ -30,6 +36,13 @@ export const PointSchema = z.object({
 export const PreviewRouteSchema = z.object({
   playerId: z.string(),
   points: z.array(PointSchema),
+  /** Optional index after which the next authored movement phase begins. */
+  phaseBreak: z.number().int().min(1).optional(),
+});
+
+export const PreviewMovementPhaseSchema = z.object({
+  id: z.enum(["regroup", "execute", "lead", "follow"]),
+  label: z.string(),
 });
 
 export const PreviewZoneKindSchema = z.enum([
@@ -53,6 +66,8 @@ export const PreviewMetricSchema = z.object({
 
 export const TacticalPreviewSpecSchema = z.object({
   routes: z.array(PreviewRouteSchema),
+  /** Optional two-stage movement annotation for calls whose timing is material. */
+  movementPhases: z.array(PreviewMovementPhaseSchema).length(2).optional(),
   zones: z.array(PreviewZoneSchema),
   metrics: z.array(PreviewMetricSchema).max(3),
 });
@@ -112,7 +127,7 @@ export const ScenarioSchema = z.object({
   id: z.string(),
   title: z.string(),
   purpose: z.string(),
-  verified: z.boolean(),
+  verificationStatus: ScenarioVerificationStatusSchema,
   source: ScenarioSourceSchema,
   /** 可选：真实地图底图（已人工核验的 marker 编号 / 阵营色由图片承担）。Fixture 不提供。 */
   mapBase: z.string().optional(),

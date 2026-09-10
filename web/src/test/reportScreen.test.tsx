@@ -79,15 +79,18 @@ describe("ConnectionReportScreen — 两个核心数字", () => {
     render(
       <ConnectionReportScreen rounds={richRounds} onReset={vi.fn()} />,
     );
-    // 调整 1/2 = 50%；最终趋同 2/3 = 67%
-    expect(screen.getByText("50%")).toBeInTheDocument();
+    // 调整 1/2 = 50%；已核验职业参考趋同 1/2 = 50%，Lite3 practice 不计入该统计。
+    expect(screen.getAllByText("50%").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText(/在 AI 分歧后发生调整/)).toBeInTheDocument();
-    expect(screen.getByText("67%")).toBeInTheDocument();
-    expect(screen.getByText(/最终判断与职业路径趋同/)).toBeInTheDocument();
+    expect(screen.getByText(/最终判断与已核验职业路径趋同/)).toBeInTheDocument();
     // 轨迹状态文本齐备：坚持 / 调整 / 一致
     expect(screen.getAllByText("坚持").length).toBeGreaterThan(0);
     expect(screen.getAllByText("调整").length).toBeGreaterThan(0);
     expect(screen.getAllByText("一致").length).toBeGreaterThan(0);
+    expect(screen.getByText(/A 区已确认缺口/)).toBeInTheDocument();
+    expect(screen.getByText(/A 侧已有双人前点/)).toBeInTheDocument();
+    expect(screen.getByText(/已确认多名进攻方进入 B 区/)).toBeInTheDocument();
+    expect(screen.getAllByText(/练习 B/).length).toBeGreaterThan(0);
     // AI 行为观察（来自程序候选）
     await waitFor(() => {
       expect(
@@ -104,8 +107,8 @@ describe("ConnectionReportScreen — 两个核心数字", () => {
     expect(
       screen.getByText("本次体验中 AI 未提出不同方向。"),
     ).toBeInTheDocument();
-    // 职业趋同指标仍然成立
-    expect(screen.getByText(/最终判断与职业路径趋同/)).toBeInTheDocument();
+    // 只用已核验职业参考计算趋同
+    expect(screen.getByText(/最终判断与已核验职业路径趋同/)).toBeInTheDocument();
   });
 
   it("小样本措辞保留，且无人格/能力诊断措辞", () => {

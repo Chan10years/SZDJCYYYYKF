@@ -4,6 +4,7 @@ import type { CallId, Scenario } from "@/domain/types";
 import { TacticalPreview } from "@/components/tactical/TacticalPreview";
 import { PageFrame } from "@/components/layout/PageFrame";
 import { MetadataStrip, Num } from "@/components/layout/MetadataStrip";
+import { getScenarioStatusCopy } from "@/domain/scenarioStatus";
 
 type TacticalPreviewScreenProps = {
   scenario: Scenario;
@@ -22,6 +23,7 @@ export function TacticalPreviewScreen({
   onNext,
 }: TacticalPreviewScreenProps) {
   const map = <TacticalPreview scenario={scenario} call={finalCall} animate />;
+  const statusCopy = getScenarioStatusCopy(scenario.verificationStatus);
 
   const titleBlock = (
     <div className="flex flex-col gap-1">
@@ -44,7 +46,7 @@ export function TacticalPreviewScreen({
       onClick={onNext}
       className="h-11 rounded-md bg-app-text px-8 text-[14px] font-medium text-app-bg transition-colors hover:opacity-90"
     >
-      {scenario.verified ? "查看真实职业路径" : "查看练习路径参考"}
+      {statusCopy.entryLabel}
     </button>
   );
 
