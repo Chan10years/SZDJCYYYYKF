@@ -147,9 +147,9 @@ export const ScenarioSchema = z.object({
 
 export const ChallengeOutputSchema = z.object({
   stance: z.enum(["agree", "challenge"]),
-  acknowledge: z.string(),
-  blindspot: z.string(),
-  question: z.string(),
+  acknowledge: z.string().trim().min(1).max(280),
+  blindspot: z.string().trim().min(1).max(280),
+  question: z.string().trim().min(1).max(280),
   alternativeCall: CallIdSchema.nullable(),
   source: z.enum(["live", "fallback"]),
 });

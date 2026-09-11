@@ -97,6 +97,7 @@ describe("ConnectionReportScreen — 两个核心数字", () => {
         screen.getByText(OBSERVATION_CANDIDATES.mixed),
       ).toBeInTheDocument();
     });
+    expect(screen.getByText("来源：程序化 fallback")).toBeInTheDocument();
   });
 
   it("零分歧状态：不显示 0%，改用安全文案", () => {

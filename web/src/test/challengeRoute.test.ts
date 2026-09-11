@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/challenge/route";
 import { requestChatCompletion } from "@/lib/aiClient";
+import { resetAiBudgetForTests } from "@/lib/aiBudget";
 import { buildFallbackChallenge } from "@/domain/fallback";
 import { scenarios } from "@/data/scenarios";
 import type { CallId } from "@/domain/types";
@@ -14,30 +15,61 @@ const mockedCompletion = vi.mocked(requestChatCompletion);
 
 const scenario = scenarios[0];
 const reasonIds = [scenario.reasonOptions[0].id];
+let requestSequence = 0;
 
-function post(body: unknown) {
+function post(body: unknown, sourceKey = `route-test-${requestSequence++}`) {
   return POST(
     new Request("http://localhost/api/challenge", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": sourceKey,
+      },
       body: JSON.stringify(body),
     }),
   );
 }
 
-function liveJson(alternativeCall: string | null, stance = "challenge") {
+function liveJson(
+  alternativeCall: string | null,
+  stance = "challenge",
+  overrides: Partial<{
+    acknowledgeReasonIds: string[];
+    blindspotFactIndex: number;
+    questionFactIndex: number;
+  }> = {},
+) {
   return JSON.stringify({
     stance,
-    acknowledge: "承接用户理由。",
-    blindspot: "指出盲点。",
-    question: "要求重新判断的问题？",
+    acknowledgeReasonIds: overrides.acknowledgeReasonIds ?? reasonIds,
+    blindspotFactIndex: overrides.blindspotFactIndex ?? 2,
+    questionFactIndex: overrides.questionFactIndex ?? 4,
     alternativeCall,
+  });
+}
+
+function legacyFreeTextJson(overrides: {
+  acknowledge?: string;
+  blindspot?: string;
+  question?: string;
+}) {
+  return JSON.stringify({
+    stance: "challenge",
+    acknowledge: overrides.acknowledge ?? "承接用户理由。",
+    blindspot: overrides.blindspot ?? "指出盲点。",
+    question: overrides.question ?? "要求重新判断的问题？",
+    alternativeCall: "B",
   });
 }
 
 describe("POST /api/challenge — 独立第二意见", () => {
   beforeEach(() => {
     mockedCompletion.mockReset();
+    resetAiBudgetForTests();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("Case A：用户 A、AI 独立首选 B → alternativeCall = B（live）", async () => {
@@ -91,6 +123,102 @@ describe("POST /api/challenge — 独立第二意见", () => {
     });
     await expect(response.json()).resolves.toEqual(
       buildFallbackChallenge(scenario, "A", reasonIds),
+    );
+  });
+
+  it.each([
+    ["未提供的精确位置", {blindspot: "敌人藏在 A 小道。"}],
+    ["未提供的道具状态", {blindspot: "对方还留着两枚闪光。"}],
+    ["未提供的比分", {blindspot: "当前比分 Falcons 5:3 Spirit。"}],
+    ["否定用户判断", {question: "你的判断就是错的。"}],
+    [
+      "把职业打法说成最佳打法",
+      {question: "职业队这样打，所以这才是最佳打法。"},
+    ],
+  ])("模型自由文本输出 %s 时安全回退", async (_label, text) => {
+    mockedCompletion.mockResolvedValue(legacyFreeTextJson(text));
+    const response = await post({
+      scenarioId: scenario.id,
+      initialCall: "A",
+      reasonIds,
+    });
+
+    await expect(response.json()).resolves.toEqual(
+      buildFallbackChallenge(scenario, "A", reasonIds),
+    );
+  });
+
+  it("结构化引用当前 Scenario 事实的合理推理仍保留 live", async () => {
+    mockedCompletion.mockResolvedValue(
+      liveJson("B", "challenge", {
+        acknowledgeReasonIds: ["known_position"],
+        blindspotFactIndex: 1,
+        questionFactIndex: 2,
+      }),
+    );
+    const response = await post({
+      scenarioId: scenario.id,
+      initialCall: "A",
+      reasonIds,
+    });
+
+    await expect(response.json()).resolves.toMatchObject({
+      source: "live",
+      alternativeCall: "B",
+      blindspot: expect.stringContaining(scenario.situation.facts[1].label),
+    });
+  });
+
+  it("结构化 fact index 越界时回退", async () => {
+    mockedCompletion.mockResolvedValue(
+      liveJson("B", "challenge", { blindspotFactIndex: 99 }),
+    );
+    const response = await post({
+      scenarioId: scenario.id,
+      initialCall: "A",
+      reasonIds,
+    });
+
+    await expect(response.json()).resolves.toEqual(
+      buildFallbackChallenge(scenario, "A", reasonIds),
+    );
+  });
+
+  it("60 名用户各完成三轮 Challenge 后仍不触发进程预算 fallback", async () => {
+    mockedCompletion.mockResolvedValue(liveJson(null, "agree"));
+    const sourceKey = "198.51.100.77";
+    const body = {
+      scenarioId: scenario.id,
+      initialCall: "A",
+      reasonIds,
+    };
+
+    const burst = Array.from({ length: 60 }, () =>
+      Array.from({ length: 3 }, () => post(body, sourceKey)),
+    ).flat();
+    await Promise.all(burst);
+    const callsBeforeExhaustion = mockedCompletion.mock.calls.length;
+    const response = await post(body, sourceKey);
+
+    expect(callsBeforeExhaustion).toBe(180);
+    expect(mockedCompletion).toHaveBeenCalledTimes(180);
+    await expect(response.json()).resolves.toEqual(
+      buildFallbackChallenge(scenario, "A", reasonIds),
+    );
+  });
+
+  it("非法 timeout 环境变量回到安全默认值，并限制 Challenge 输出长度", async () => {
+    vi.stubEnv("AI_CHALLENGE_TIMEOUT_MS", "not-a-number");
+    mockedCompletion.mockResolvedValue(liveJson(null, "agree"));
+
+    await post({
+      scenarioId: scenario.id,
+      initialCall: "A",
+      reasonIds,
+    });
+
+    expect(mockedCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({ timeoutMs: 5_000, maxTokens: 384 }),
     );
   });
 });

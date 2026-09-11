@@ -9,14 +9,15 @@ describe("parseChallengeContent", () => {
   it("parses a plain JSON object", () => {
     const raw = JSON.stringify({
       stance: "challenge",
-      acknowledge: "你主要依据「已知位置」做出判断。",
-      blindspot: "A 区信息明确，但那可能只是诱饵。",
-      question: "如果对手压向 A 区，你的依据还成立吗？",
+      acknowledgeReasonIds: ["known_position"],
+      blindspotFactIndex: 2,
+      questionFactIndex: 4,
       alternativeCall: "B",
     });
     expect(parseChallengeContent(raw)).toMatchObject({
       stance: "challenge",
-      acknowledge: "你主要依据「已知位置」做出判断。",
+      acknowledgeReasonIds: ["known_position"],
+      blindspotFactIndex: 2,
       alternativeCall: "B",
     });
   });
@@ -26,9 +27,9 @@ describe("parseChallengeContent", () => {
       '```json\n' +
       JSON.stringify({
         stance: "agree",
-        acknowledge: "你当前的选择合理。",
-        blindspot: "仍需留意时间消耗。",
-        question: "倒计时是否在压缩你的执行窗口？",
+        acknowledgeReasonIds: ["time_pressure"],
+        blindspotFactIndex: 1,
+        questionFactIndex: 0,
         alternativeCall: null,
       }) +
       '\n```';
@@ -45,9 +46,9 @@ describe("parseChallengeContent", () => {
   it("returns null when the alternative Call is schema-invalid", () => {
     const raw = JSON.stringify({
       stance: "challenge",
-      acknowledge: "好",
-      blindspot: "盲点",
-      question: "问题",
+      acknowledgeReasonIds: ["known_position"],
+      blindspotFactIndex: 0,
+      questionFactIndex: 1,
       alternativeCall: "D",
     });
     expect(parseChallengeContent(raw)).toBeNull();
@@ -56,8 +57,19 @@ describe("parseChallengeContent", () => {
   it("returns null when a required text field is missing", () => {
     const raw = JSON.stringify({
       stance: "challenge",
-      acknowledge: "好",
+      acknowledgeReasonIds: ["known_position"],
       alternativeCall: null,
+    });
+    expect(parseChallengeContent(raw)).toBeNull();
+  });
+
+  it("rejects the old free-text contract instead of trying to inspect prose", () => {
+    const raw = JSON.stringify({
+      stance: "challenge",
+      acknowledge: "承接。",
+      blindspot: "对手在未提供的位置。",
+      question: "你的判断就是错的。",
+      alternativeCall: "B",
     });
     expect(parseChallengeContent(raw)).toBeNull();
   });
@@ -65,9 +77,9 @@ describe("parseChallengeContent", () => {
 
 describe("normalizeChallengeContent — alternativeCall 必须不同于用户 Initial Call", () => {
   const base = {
-    acknowledge: "承接。",
-    blindspot: "盲点。",
-    question: "反问？",
+    acknowledgeReasonIds: ["known_position"] as ["known_position"],
+    blindspotFactIndex: 0,
+    questionFactIndex: 1,
   };
 
   it("Case A：用户 A、AI 独立首选 B → alternativeCall 保留 B，stance 为 challenge", () => {

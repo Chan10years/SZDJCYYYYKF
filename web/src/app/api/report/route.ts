@@ -9,6 +9,8 @@ import {
 } from "@/domain/reportObservation";
 import { parseReportChooseContent } from "@/lib/aiParsing";
 import { requestChatCompletion } from "@/lib/aiClient";
+import { readAiTimeoutMs } from "@/lib/aiConfig";
+import { consumeAiBudget, getAiRequestKey } from "@/lib/aiBudget";
 
 export const dynamic = "force-dynamic";
 
@@ -63,16 +65,23 @@ export async function POST(request: Request) {
   // 程序计算好的统计，模型不得改动。
   const stats = calculateConnectionStats(rounds);
 
+  if (!consumeAiBudget("report", getAiRequestKey(request))) {
+    return Response.json(
+      { observation: buildFallbackReport(stats), source: "fallback" },
+      { status: 200 },
+    );
+  }
+
   // 任何 AI 相关异常都回退到 deterministic fallback，fallback 对产品是正常成功响应。
   try {
-    const timeoutMs = Number(process.env.AI_REPORT_TIMEOUT_MS ?? 6500);
+    const timeoutMs = readAiTimeoutMs("AI_REPORT_TIMEOUT_MS", 8_000);
     const content = await requestChatCompletion({
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: buildUserPrompt(rounds) },
       ],
       timeoutMs,
-      maxTokens: 512,
+      maxTokens: 128,
     });
     const parsedContent = parseReportChooseContent(content);
     // AI 只能选候选 id；未知 id / 不符合当前统计的候选 / 自由文本一律回退。

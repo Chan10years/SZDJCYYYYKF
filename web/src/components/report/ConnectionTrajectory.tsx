@@ -3,6 +3,7 @@
 import type { CallId, RoundResult } from "@/domain/types";
 import { scenarios } from "@/data/scenarios";
 import { getScenarioStatusCopy } from "@/domain/scenarioStatus";
+import { getAiSourceLabel } from "@/domain/aiSource";
 
 type RowStatus = "调整" | "坚持" | "一致";
 
@@ -12,6 +13,7 @@ type Row = {
   aiCall: CallId | null;
   finalCall: CallId;
   professionalCall: CallId;
+  aiResponseSource: "live" | "fallback";
   status: RowStatus;
   professionalLabel: string;
   referenceLabel: string;
@@ -37,6 +39,7 @@ function toTrajectoryRows(rounds: RoundResult[]): Row[] {
       aiCall: hasDisagreement ? round.aiAlternativeCall : null,
       finalCall: round.finalCall,
       professionalCall: round.professionalCall,
+      aiResponseSource: round.aiResponseSource,
       status,
       professionalLabel: scenario?.professional.pathLabel ?? "职业路径参考",
       referenceLabel: statusCopy.shortLabel,
@@ -122,13 +125,18 @@ export function ConnectionTrajectory({ rounds }: { rounds: RoundResult[] }) {
           </>
         );
         const pro = (
-          <p className="text-[12px] leading-relaxed text-app-muted">
-            <span className="text-app-pro">
-              {row.referenceLabel} {row.professionalCall}
-            </span>
-            {" · "}
-            {row.professionalLabel}
-          </p>
+          <div className="text-[12px] leading-relaxed text-app-muted">
+            <p>
+              <span className="text-app-pro">
+                {row.referenceLabel} {row.professionalCall}
+              </span>
+              {" · "}
+              {row.professionalLabel}
+            </p>
+            <p className="mt-1 text-[11px]">
+              AI 来源：{getAiSourceLabel(row.aiResponseSource)}
+            </p>
+          </div>
         );
         return (
           <div

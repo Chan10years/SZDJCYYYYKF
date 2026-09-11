@@ -1,18 +1,22 @@
 import { z } from "zod";
-import { CallIdSchema } from "@/domain/schemas";
-import type { CallId, ChallengeOutput } from "@/domain/types";
+import { CallIdSchema, ReasonIdSchema } from "@/domain/schemas";
+import type { CallId } from "@/domain/types";
 
 /**
- * Challenge 模型输出，不含 source（source 由响应路径决定）。
- * 与 ChallengeOutputSchema 一致，仅省略 source 字段。
+ * Challenge 模型输出的内部 contract。
+ *
+ * 模型只能引用用户理由、Scenario facts 和 Call id，不能把自由文本直接
+ * 写入产品响应。服务端会在通过校验后，用这些引用渲染既有的 ChallengeOutput。
  */
 const ChallengeContentSchema = z.object({
   stance: z.enum(["agree", "challenge"]),
-  acknowledge: z.string(),
-  blindspot: z.string(),
-  question: z.string(),
+  acknowledgeReasonIds: z.array(ReasonIdSchema).min(1).max(2),
+  blindspotFactIndex: z.number().int().nonnegative(),
+  questionFactIndex: z.number().int().nonnegative(),
   alternativeCall: CallIdSchema.nullable(),
-});
+}).strict();
+
+export type ParsedChallengeContent = z.infer<typeof ChallengeContentSchema>;
 
 function stripCodeFence(raw: string): string {
   const trimmed = raw.trim();
@@ -27,7 +31,7 @@ function stripCodeFence(raw: string): string {
  */
 export function parseChallengeContent(
   raw: string,
-): Omit<ChallengeOutput, "source"> | null {
+): ParsedChallengeContent | null {
   const body = stripCodeFence(raw).trim();
   if (body.length === 0) {
     return null;
@@ -49,9 +53,9 @@ export function parseChallengeContent(
  * stance 由 alternativeCall 派生，避免模型输出自相矛盾。
  */
 export function normalizeChallengeContent(
-  content: Omit<ChallengeOutput, "source">,
+  content: ParsedChallengeContent,
   initialCall: CallId,
-): Omit<ChallengeOutput, "source"> {
+): ParsedChallengeContent {
   const alternativeCall =
     content.alternativeCall !== null && content.alternativeCall !== initialCall
       ? content.alternativeCall

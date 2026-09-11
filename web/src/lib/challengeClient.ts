@@ -1,6 +1,7 @@
 import { ChallengeOutputSchema } from "@/domain/schemas";
 import { buildFallbackChallenge } from "@/domain/fallback";
 import { scenarios } from "@/data/scenarios";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import type { CallId, ChallengeOutput, ReasonId } from "@/domain/types";
 
 type RequestChallengeArgs = {
@@ -8,6 +9,8 @@ type RequestChallengeArgs = {
   initialCall: CallId;
   reasonIds: ReasonId[];
 };
+
+export const CHALLENGE_CLIENT_TIMEOUT_MS = 5_000;
 
 /**
  * 客户端向 /api/challenge 发起请求。
@@ -22,15 +25,23 @@ export async function requestChallengeOnClient(
   }
 
   try {
-    const response = await fetch("/api/challenge", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(args),
-    });
-    if (!response.ok) {
-      throw new Error(`Challenge request failed with status ${response.status}`);
-    }
-    const data: unknown = await response.json();
+    const data = await fetchWithTimeout(
+      "/api/challenge",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(args),
+      },
+      CHALLENGE_CLIENT_TIMEOUT_MS,
+      async (response) => {
+        if (!response.ok) {
+          throw new Error(
+            `Challenge request failed with status ${response.status}`,
+          );
+        }
+        return (await response.json()) as unknown;
+      },
+    );
     const result = ChallengeOutputSchema.safeParse(data);
     if (!result.success) {
       throw new Error("Challenge response failed schema validation");

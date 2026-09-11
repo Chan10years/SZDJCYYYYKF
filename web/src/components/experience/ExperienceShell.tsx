@@ -2,7 +2,8 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import { experienceReducer, initialState } from "@/domain/experienceReducer";
-import { clearSession, loadSession, saveSession } from "@/lib/storage";
+import { clearSession, saveSession } from "@/lib/storage";
+import { initializeSessionForEntry } from "@/lib/freshEntry";
 import { requestChallengeOnClient } from "@/lib/challengeClient";
 import { scenarios } from "@/data/scenarios";
 import type { ExperiencePhase } from "@/domain/types";
@@ -32,7 +33,7 @@ export function ExperienceShell() {
   const challengeAttempted = useRef(false);
 
   useEffect(() => {
-    const saved = loadSession();
+    const saved = initializeSessionForEntry();
     if (saved) dispatch({ type: "HYDRATE", payload: saved });
     // 仅此一处：客户端挂载后标记已水合，防止初始空 state 覆盖已保存的会话。
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -40,7 +41,7 @@ export function ExperienceShell() {
   }, []);
 
   useEffect(() => {
-    // Reset 后回到 intro，不再把空白 Intro session 写回 localStorage，保证 reset 真正清空。
+    // Reset 后回到 intro，不再把空白 Intro session 写回 sessionStorage，保证 reset 真正清空。
     if (hydrated && state.phase !== "intro") saveSession(state);
   }, [hydrated, state]);
 

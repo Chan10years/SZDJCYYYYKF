@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import type { CallId, ChallengeOutput, ReasonId, Scenario } from "@/domain/types";
 import { PageFrame } from "@/components/layout/PageFrame";
+import { getAiSourceLabel } from "@/domain/aiSource";
 
 type ChallengeScreenProps = {
   scenario: Scenario;
@@ -12,8 +13,6 @@ type ChallengeScreenProps = {
   onKeep: () => void;
   onAccept: () => void;
 };
-
-const isDev = process.env.NODE_ENV === "development";
 
 /**
  * AI 第二意见：用户判断锚点常驻，AI 以编辑批注体接入。
@@ -107,11 +106,12 @@ export function ChallengeScreen({
     >
       <p className="text-xs font-medium text-app-ai">
         AI 第二意见
-        {isDev ? (
-          <span className="ml-2 font-mono tabular-nums text-app-muted">
-            source: {challenge.source}
-          </span>
-        ) : null}
+        <span
+          className="ml-2 font-mono tabular-nums text-app-muted"
+          data-ai-source={challenge.source}
+        >
+          来源：{getAiSourceLabel(challenge.source)}
+        </span>
       </p>
 
       <div className="mt-3 flex flex-col gap-3">

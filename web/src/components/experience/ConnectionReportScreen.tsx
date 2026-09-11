@@ -7,6 +7,8 @@ import { calculateConnectionStats } from "@/domain/stats";
 import { buildFallbackReport } from "@/domain/fallback";
 import { OBSERVATION_CANDIDATES } from "@/domain/reportObservation";
 import { ReportResponseSchema } from "@/lib/aiParsing";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import { getAiSourceLabel } from "@/domain/aiSource";
 import { ConnectionTrajectory } from "@/components/report/ConnectionTrajectory";
 import { PageFrame } from "@/components/layout/PageFrame";
 import { Num } from "@/components/layout/MetadataStrip";
@@ -17,6 +19,8 @@ type ConnectionReportScreenProps = {
 };
 
 type Observation = { text: string; source: "live" | "fallback" };
+
+export const REPORT_CLIENT_TIMEOUT_MS = 8_000;
 
 /** 极轻量 AI annotation glyph：结论区锚点，非插画。 */
 function ObservationGlyph() {
@@ -55,15 +59,23 @@ export function ConnectionReportScreen({
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch("/api/report", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rounds }),
-        });
-        if (!response.ok) {
-          throw new Error(`Report request failed with status ${response.status}`);
-        }
-        const data: unknown = await response.json();
+        const data = await fetchWithTimeout(
+          "/api/report",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rounds }),
+          },
+          REPORT_CLIENT_TIMEOUT_MS,
+          async (response) => {
+            if (!response.ok) {
+              throw new Error(
+                `Report request failed with status ${response.status}`,
+              );
+            }
+            return (await response.json()) as unknown;
+          },
+        );
         const parsed = ReportResponseSchema.safeParse(data);
         if (!parsed.success) {
           throw new Error("Report response failed schema validation");
@@ -207,9 +219,14 @@ export function ConnectionReportScreen({
           <div className="mt-3 flex items-start gap-4">
             <ObservationGlyph />
             {observation ? (
-              <p className="max-w-2xl flex-1 text-[15px] leading-[1.75] text-app-text">
-                {observation.text}
-              </p>
+              <div className="max-w-2xl flex-1">
+                <p className="text-[15px] leading-[1.75] text-app-text">
+                  {observation.text}
+                </p>
+                <p className="mt-2 text-xs text-app-muted">
+                  来源：{getAiSourceLabel(observation.source)}
+                </p>
+              </div>
             ) : (
               <p className="max-w-2xl flex-1 text-[15px] leading-[1.75] text-app-muted">
                 正在生成本次连接行为观察……

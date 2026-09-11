@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSession,
   loadSession,
@@ -9,6 +9,26 @@ import { experienceReducer, initialState } from "@/domain/experienceReducer";
 import type { ExperienceState } from "@/domain/experienceReducer";
 import type { PersistedSession } from "@/domain/sessionSchema";
 import type { ChallengeOutput } from "@/domain/types";
+
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => {
+      values.set(key, value);
+    },
+    removeItem: (key) => {
+      values.delete(key);
+    },
+    clear: () => {
+      values.clear();
+    },
+    key: (index) => Array.from(values.keys())[index] ?? null,
+    get length() {
+      return values.size;
+    },
+  };
+}
 
 const validSession: PersistedSession = {
   phase: "challenge",
@@ -30,10 +50,60 @@ const validSession: PersistedSession = {
 describe("session storage", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("round-trips a valid session", () => {
     saveSession(validSession);
+    expect(loadSession()).toEqual(validSession);
+  });
+
+  it("stores a session in sessionStorage instead of shared localStorage", () => {
+    saveSession(validSession);
+
+    expect(sessionStorage.getItem(SESSION_STORAGE_KEY)).toBe(
+      JSON.stringify(validSession),
+    );
+    expect(localStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it("does not hydrate a stale localStorage session", () => {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(validSession));
+
+    expect(loadSession()).toBeNull();
+  });
+
+  it("starts a new or reopened tab with empty session storage", () => {
+    const tabAStorage = createMemoryStorage();
+    const tabBStorage = createMemoryStorage();
+    const reopenedTabStorage = createMemoryStorage();
+
+    vi.stubGlobal("sessionStorage", tabAStorage);
+    saveSession(validSession);
+
+    vi.stubGlobal("sessionStorage", tabBStorage);
+    expect(loadSession()).toBeNull();
+
+    vi.stubGlobal("sessionStorage", reopenedTabStorage);
+    expect(loadSession()).toBeNull();
+  });
+
+  it("does not let reset in one tab clear another tab", () => {
+    const tabAStorage = createMemoryStorage();
+    const tabBStorage = createMemoryStorage();
+
+    vi.stubGlobal("sessionStorage", tabAStorage);
+    saveSession(validSession);
+
+    vi.stubGlobal("sessionStorage", tabBStorage);
+    clearSession();
+
+    vi.stubGlobal("sessionStorage", tabAStorage);
     expect(loadSession()).toEqual(validSession);
   });
 
@@ -42,20 +112,44 @@ describe("session storage", () => {
   });
 
   it("returns null for malformed JSON", () => {
-    localStorage.setItem(SESSION_STORAGE_KEY, "{ not valid json");
+    sessionStorage.setItem(SESSION_STORAGE_KEY, "{ not valid json");
     expect(loadSession()).toBeNull();
   });
 
   it("returns null for schema-invalid data", () => {
     const invalid = { ...validSession, scenarioIndex: 99 };
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(invalid));
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(invalid));
     expect(loadSession()).toBeNull();
   });
 
   it("removes the key on clear", () => {
     saveSession(validSession);
     clearSession();
-    expect(localStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it("keeps the in-memory flow alive when setItem is denied", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("quota exceeded", "QuotaExceededError");
+    });
+
+    expect(() => saveSession(validSession)).not.toThrow();
+  });
+
+  it("returns no saved session when getItem is denied", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("storage denied", "SecurityError");
+    });
+
+    expect(loadSession()).toBeNull();
+  });
+
+  it("does not crash reset when removeItem is denied", () => {
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new DOMException("storage denied", "SecurityError");
+    });
+
+    expect(() => clearSession()).not.toThrow();
   });
 
   it("recovers to summary with three rounds after refresh (demo path)", () => {
