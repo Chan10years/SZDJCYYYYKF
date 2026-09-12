@@ -1,6 +1,6 @@
 "use client";
 
-import type { CallId, RoundResult } from "@/domain/types";
+import type { CallId, RoundResult, Scenario } from "@/domain/types";
 import { scenarios } from "@/data/scenarios";
 import { getScenarioStatusCopy } from "@/domain/scenarioStatus";
 import { getAiSourceLabel } from "@/domain/aiSource";
@@ -19,9 +19,12 @@ type Row = {
   referenceLabel: string;
 };
 
-function toTrajectoryRows(rounds: RoundResult[]): Row[] {
+function toTrajectoryRows(
+  rounds: RoundResult[],
+  scenarioPool: readonly Scenario[],
+): Row[] {
   return rounds.map((round, index) => {
-    const scenario = scenarios.find((s) => s.id === round.scenarioId);
+    const scenario = scenarioPool.find((s) => s.id === round.scenarioId);
     const statusCopy = getScenarioStatusCopy(
       scenario?.verificationStatus ?? "draft",
     );
@@ -100,12 +103,18 @@ function StatusChip({ status }: { status: RowStatus }) {
 }
 
 /**
- * Connection Trajectory —— 结果页第一视觉主角，三轮总表。
+ * Connection Trajectory —— 结果页第一视觉主角，本次各局总表。
  * 每轮一整行：R# | 初始 → AI → 最终 | 状态 | 职业路径（完整文字不截断）。
  * 行底细分隔与对齐列建立“总表感”，不做看板卡片。
  */
-export function ConnectionTrajectory({ rounds }: { rounds: RoundResult[] }) {
-  const rows = toTrajectoryRows(rounds);
+export function ConnectionTrajectory({
+  rounds,
+  scenarioPool = scenarios,
+}: {
+  rounds: RoundResult[];
+  scenarioPool?: readonly Scenario[];
+}) {
+  const rows = toTrajectoryRows(rounds, scenarioPool);
 
   return (
     <section aria-label="连接轨迹" className="flex flex-col">

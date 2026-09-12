@@ -11,9 +11,13 @@ from build_clean_lite2_map import AUTHORED_MARKER_PATCHES, AUTHORED_LEGEND_RECT
 ROOT = Path(__file__).parents[2]
 SOURCE = ROOT / "public" / "maps" / "Lite2_Map.png"
 CLEAN = ROOT / "public" / "maps" / "Lite2_CurrentStateBase.png"
+REQUIREMENTS = Path(__file__).with_name("requirements.txt")
 
 
 class CleanLite2MapAssetTest(unittest.TestCase):
+    def test_requirements_declare_pillow_for_asset_generator(self):
+        self.assertIn("Pillow==12.2.0", REQUIREMENTS.read_text(encoding="utf-8"))
+
     def test_clean_asset_keeps_native_frame_and_is_deterministic(self):
         image = Image.open(CLEAN).convert("RGBA")
 

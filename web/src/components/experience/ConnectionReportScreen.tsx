@@ -59,7 +59,7 @@ export function ConnectionReportScreen({
   const stats = calculateConnectionStats(rounds);
   const [observation, setObservation] = useState<Observation | null>(null);
 
-  // 三局记录与统计一旦确定，立即异步获取跨局行为观察；任何失败都回退到确定性文本。
+  // 本次记录与统计一旦确定，立即异步获取行为观察；任何失败都回退到确定性文本。
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -135,26 +135,32 @@ export function ConnectionReportScreen({
         )
       : null;
   const smallSampleNote = `以下分析仅基于本次 ${stats.totalRounds} 个案例，用于观察当前体验中的决策变化，不代表稳定人格或能力评估。`;
+  const reportTitle = rounds.length === 1 ? "本局判断复盘。" : "从单局，到模式。";
+  const reportSubtitle = rounds.length === 1
+    ? "回看这一局的判断如何与 AI 和参考路径发生连接。"
+    : "看看你的判断如何与 AI 和参考路径发生连接。";
+  const trajectoryHeading =
+    rounds.length === 1 ? "本局判断变化轨迹" : "本次判断变化轨迹";
 
   return (
     <PageFrame family="analysis" eyebrow="08 · 连接报告">
       <div className="w-full max-w-[840px]">
         <header className="pt-4">
           <h1 className="text-2xl font-semibold leading-[1.26] text-app-text lg:text-[1.75rem]">
-            从单局，到模式。
+            {reportTitle}
           </h1>
           <p className="mt-1 text-[13px] text-app-muted">
-            看看你的判断如何与 AI 和参考路径发生连接。
+            {reportSubtitle}
           </p>
         </header>
 
-        {/* 三轮判断变化轨迹 */}
+        {/* 本次判断变化轨迹 */}
         <section className="mt-6 border-t border-app-line pt-5">
           <p className="text-[13px] font-medium text-app-muted">
-            三轮判断变化轨迹
+            {trajectoryHeading}
           </p>
           <div className="mt-4">
-            <ConnectionTrajectory rounds={rounds} />
+            <ConnectionTrajectory rounds={rounds} scenarioPool={scenarioPool} />
           </div>
         </section>
 
@@ -227,7 +233,7 @@ export function ConnectionReportScreen({
           ) : null}
         </section>
 
-        {/* AI 行为观察：结论区，glyph + 收束文本一行，限本次 3 局行为 */}
+        {/* AI 行为观察：结论区，glyph + 收束文本一行，限本次案例行为 */}
         <section className="mt-6 border-t border-app-line pt-6">
           <p className="text-[13px] font-medium text-app-muted">AI 行为观察</p>
           <div className="mt-3 flex items-start gap-4">

@@ -57,6 +57,19 @@ const agreeRounds: RoundResult[] = scenarios.map((s, i) =>
   }),
 );
 
+const gate1PracticeScenario = {
+  ...scenarios[0],
+  id: "gate1-practice-r34",
+  verificationStatus: "practice" as const,
+};
+
+const gate1PracticeRound = round({
+  scenarioId: gate1PracticeScenario.id,
+  initialCall: "A",
+  finalCall: "A",
+  professionalCall: "A",
+});
+
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
@@ -110,6 +123,24 @@ describe("ConnectionReportScreen — 两个核心数字", () => {
     ).toBeInTheDocument();
     // 只用已核验职业参考计算趋同
     expect(screen.getByText(/最终判断与已核验职业路径趋同/)).toBeInTheDocument();
+  });
+
+  it("单案例 practice 报告使用传入 Scenario 池且不显示多案例文案", () => {
+    render(
+      <ConnectionReportScreen
+        rounds={[gate1PracticeRound]}
+        scenarioPool={[gate1PracticeScenario]}
+        requestRemoteReport={false}
+        onReset={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("本局判断复盘。")).toBeInTheDocument();
+    expect(screen.queryByText("从单局，到模式。")).not.toBeInTheDocument();
+    expect(screen.getByText("本局判断变化轨迹")).toBeInTheDocument();
+    expect(screen.queryByText("三轮判断变化轨迹")).not.toBeInTheDocument();
+    expect(screen.getAllByText("练习 A").length).toBeGreaterThan(0);
+    expect(screen.queryByText("草稿 A")).not.toBeInTheDocument();
   });
 
   it("小样本措辞保留，且无人格/能力诊断措辞", () => {
