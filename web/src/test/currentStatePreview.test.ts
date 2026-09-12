@@ -28,6 +28,7 @@ describe("current-state Tactical Preview adapter", () => {
     const preview = adapter.buildCurrentStatePreview(fixture);
 
     expect(preview.kind).toBe("current-match-state");
+    expect(preview.asset).toBe("/maps/Lite2_CurrentStateBase.png");
     expect(preview.players).toHaveLength(10);
     expect(preview.players.filter((player) => player.side === "CT")).toHaveLength(5);
     expect(preview.players.filter((player) => player.side === "T")).toHaveLength(5);

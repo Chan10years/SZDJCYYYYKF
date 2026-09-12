@@ -159,6 +159,25 @@ describe("experienceReducer", () => {
     expect(s.scenarioIndex).toBeLessThanOrEqual(2);
   });
 
+  it("can run a one-scenario practice pool without changing the default pool", () => {
+    const practiceScenario = {
+      ...scenarios[0],
+      id: "gate1-practice-r34",
+      verificationStatus: "practice" as const,
+    };
+
+    const completed = experienceReducer(
+      reviewState,
+      { type: "COMPLETE_ROUND" },
+      [practiceScenario],
+    );
+
+    expect(completed.phase).toBe("summary");
+    expect(completed.completedRounds[0]?.scenarioId).toBe(
+      "gate1-practice-r34",
+    );
+  });
+
   it("drives a full round loop R1 -> R2 -> R3 -> summary through every phase", () => {
     let s: ExperienceState = initialState;
     const calls: CallId[] = ["A", "B", "C"];

@@ -4,6 +4,7 @@ import type {
   ExperiencePhase,
   ReasonId,
   RoundResult,
+  Scenario,
 } from "./types";
 import { scenarios } from "@/data/scenarios";
 
@@ -16,8 +17,6 @@ export type ExperienceState = {
   finalCall: CallId | null;
   completedRounds: RoundResult[];
 };
-
-const TOTAL_SCENARIOS = scenarios.length;
 
 export const initialState: ExperienceState = {
   phase: "intro",
@@ -55,6 +54,7 @@ function canRequestChallenge(state: ExperienceState): boolean {
 export function experienceReducer(
   state: ExperienceState,
   action: ExperienceAction,
+  scenarioPool: readonly Scenario[] = scenarios,
 ): ExperienceState {
   switch (action.type) {
     case "START":
@@ -142,7 +142,7 @@ export function experienceReducer(
       ) {
         return state;
       }
-      const scenario = scenarios[state.scenarioIndex];
+      const scenario = scenarioPool[state.scenarioIndex];
       if (!scenario) {
         return state;
       }
@@ -160,11 +160,11 @@ export function experienceReducer(
       };
       const completedRounds = [...state.completedRounds, round];
       const nextIndex = state.scenarioIndex + 1;
-      if (nextIndex >= TOTAL_SCENARIOS) {
+      if (nextIndex >= scenarioPool.length) {
         return {
           phase: "summary",
           // 保持在 PersistedSessionSchema 允许的 0..2 范围内，刷新后可恢复
-          scenarioIndex: TOTAL_SCENARIOS - 1,
+          scenarioIndex: Math.max(0, scenarioPool.length - 1),
           initialCall: null,
           reasonIds: [],
           challenge: null,

@@ -5,8 +5,9 @@ import { experienceReducer, initialState } from "@/domain/experienceReducer";
 import { clearSession, saveSession } from "@/lib/storage";
 import { initializeSessionForEntry } from "@/lib/freshEntry";
 import { requestChallengeOnClient } from "@/lib/challengeClient";
-import { scenarios } from "@/data/scenarios";
-import type { ExperiencePhase } from "@/domain/types";
+import { scenarios as defaultScenarios } from "@/data/scenarios";
+import type { CurrentStatePreviewData } from "@/domain/currentStatePreview";
+import type { ExperiencePhase, Scenario } from "@/domain/types";
 import { IntroScreen } from "./IntroScreen";
 import { SituationScreen } from "./SituationScreen";
 import { DecisionScreen } from "./DecisionScreen";
@@ -27,23 +28,46 @@ function NotYet({ phase }: { phase: ExperiencePhase }) {
   );
 }
 
-export function ExperienceShell() {
-  const [state, dispatch] = useReducer(experienceReducer, initialState);
+type ExperienceShellProps = {
+  /** Optional practice pool; the default product pool remains unchanged. */
+  scenarios?: readonly Scenario[];
+  currentStateByScenarioId?: Readonly<Record<string, CurrentStatePreviewData>>;
+  persistSession?: boolean;
+  restoreSession?: boolean;
+  requestRemoteChallenge?: boolean;
+  requestRemoteReport?: boolean;
+  introSummary?: string;
+};
+
+export function ExperienceShell({
+  scenarios: scenarioPool = defaultScenarios,
+  currentStateByScenarioId = {},
+  persistSession = true,
+  restoreSession = true,
+  requestRemoteChallenge = true,
+  requestRemoteReport = true,
+  introSummary,
+}: ExperienceShellProps = {}) {
+  const reduceExperience = (state: typeof initialState, action: Parameters<typeof experienceReducer>[1]) =>
+    experienceReducer(state, action, scenarioPool);
+  const [state, dispatch] = useReducer(reduceExperience, initialState);
   const [hydrated, setHydrated] = useState(false);
   const challengeAttempted = useRef(false);
 
   useEffect(() => {
-    const saved = initializeSessionForEntry();
-    if (saved) dispatch({ type: "HYDRATE", payload: saved });
+    if (restoreSession) {
+      const saved = initializeSessionForEntry();
+      if (saved) dispatch({ type: "HYDRATE", payload: saved });
+    }
     // 仅此一处：客户端挂载后标记已水合，防止初始空 state 覆盖已保存的会话。
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setHydrated(true);
-  }, []);
+  }, [restoreSession]);
 
   useEffect(() => {
     // Reset 后回到 intro，不再把空白 Intro session 写回 sessionStorage，保证 reset 真正清空。
-    if (hydrated && state.phase !== "intro") saveSession(state);
-  }, [hydrated, state]);
+    if (persistSession && hydrated && state.phase !== "intro") saveSession(state);
+  }, [hydrated, persistSession, state]);
 
   // phase 变化时重置“挑战请求已发起”标记，避免一次进入阶段内重复请求。
   useEffect(() => {
@@ -61,13 +85,17 @@ export function ExperienceShell() {
     if (state.initialCall === null || state.reasonIds.length === 0) {
       return;
     }
+    const scenario = scenarioPool[state.scenarioIndex];
+    if (!scenario) {
+      return;
+    }
     challengeAttempted.current = true;
-    const scenarioId = scenarios[state.scenarioIndex].id;
+    const scenarioId = scenario.id;
     requestChallengeOnClient({
       scenarioId,
       initialCall: state.initialCall,
       reasonIds: state.reasonIds,
-    })
+    }, scenario, requestRemoteChallenge)
       .then((challenge) => {
         dispatch({ type: "CHALLENGE_RESOLVED", challenge });
       })
@@ -75,23 +103,40 @@ export function ExperienceShell() {
         // 服务端在失败时也会返回 200 + fallback；此分支仅防御性兜底，
         // 不自动重试，避免在无 result 时无限请求。
       });
-  }, [state.phase, state.challenge, state.initialCall, state.reasonIds, state.scenarioIndex]);
+  }, [
+    requestRemoteChallenge,
+    scenarioPool,
+    state.phase,
+    state.challenge,
+    state.initialCall,
+    state.reasonIds,
+    state.scenarioIndex,
+  ]);
 
   if (!hydrated) {
     return null;
   }
 
-  const scenario = scenarios[state.scenarioIndex];
+  const scenario = scenarioPool[state.scenarioIndex];
+  if (!scenario) {
+    return <NotYet phase={state.phase} />;
+  }
 
   switch (state.phase) {
     case "intro":
-      return <IntroScreen onStart={() => dispatch({ type: "START" })} />;
+      return (
+        <IntroScreen
+          onStart={() => dispatch({ type: "START" })}
+          summary={introSummary}
+        />
+      );
     case "situation":
       return (
         <SituationScreen
           scenario={scenario}
           round={state.scenarioIndex + 1}
-          totalRounds={scenarios.length}
+          totalRounds={scenarioPool.length}
+          currentState={currentStateByScenarioId[scenario.id]}
           onBegin={() => dispatch({ type: "BEGIN_DECISION" })}
         />
       );
@@ -148,7 +193,7 @@ export function ExperienceShell() {
           finalCall={state.finalCall}
           challenge={state.challenge}
           primaryLabel={
-            state.scenarioIndex === scenarios.length - 1
+            state.scenarioIndex === scenarioPool.length - 1
               ? "查看连接报告"
               : "下一局"
           }
@@ -161,8 +206,12 @@ export function ExperienceShell() {
       return (
         <ConnectionReportScreen
           rounds={state.completedRounds}
+          scenarioPool={scenarioPool}
+          requestRemoteReport={requestRemoteReport}
           onReset={() => {
-            clearSession();
+            if (persistSession) {
+              clearSession();
+            }
             dispatch({ type: "RESET" });
           }}
         />

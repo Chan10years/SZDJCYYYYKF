@@ -3,6 +3,8 @@ import { PageFrame } from "@/components/layout/PageFrame";
 import { MetadataStrip, Num } from "@/components/layout/MetadataStrip";
 import { MediaViewport } from "@/components/layout/MediaViewport";
 import { getScenarioStatusCopy } from "@/domain/scenarioStatus";
+import type { CurrentStatePreviewData } from "@/domain/currentStatePreview";
+import { TacticalPreview } from "@/components/tactical/TacticalPreview";
 
 /* The map asset must remain a plain image so the shared SVG/PNG source stays inspectable. */
 /* eslint-disable @next/next/no-img-element */
@@ -12,6 +14,7 @@ type SituationScreenProps = {
   round: number;
   totalRounds: number;
   onBegin: () => void;
+  currentState?: CurrentStatePreviewData;
 };
 
 /**
@@ -25,8 +28,9 @@ export function SituationScreen({
   round,
   totalRounds,
   onBegin,
+  currentState,
 }: SituationScreenProps) {
-  const situationMap = (
+  const authoredSituationMap = (
     <MediaViewport>
       {scenario.mapBase ? (
         // 判断地图：当前决策时刻空间信息（无路线、无答案暗示）。
@@ -53,6 +57,19 @@ export function SituationScreen({
         </div>
       )}
     </MediaViewport>
+  );
+
+  const situationMap = currentState ? (
+    <MediaViewport>
+      <TacticalPreview
+        scenario={scenario}
+        call="A"
+        variant="full"
+        currentState={currentState}
+      />
+    </MediaViewport>
+  ) : (
+    authoredSituationMap
   );
 
   const metadata = (

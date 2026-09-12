@@ -1,5 +1,6 @@
-import { RealMatchSpikeScreen } from "@/components/gate1/RealMatchSpikeScreen";
+import { ScenarioDraftGateScreen } from "@/components/gate1/ScenarioDraftGateScreen";
 import { buildCurrentStatePreview } from "@/domain/currentStatePreview";
+import { buildScenarioDraft } from "@/domain/scenarioDraft";
 import { realScenarios } from "@/data/scenarios.real";
 import normalizedMatchState from "@/data/realMatch/lite2-g2-spirit-r34.json";
 
@@ -16,7 +17,14 @@ function getLite2Scenario() {
 const lite2Scenario = getLite2Scenario();
 
 const currentState = buildCurrentStatePreview(normalizedMatchState);
+const scenarioDraft = buildScenarioDraft(normalizedMatchState, lite2Scenario);
 
 export default function Gate1Page() {
-  return <RealMatchSpikeScreen scenario={lite2Scenario} currentState={currentState} />;
+  return (
+    <ScenarioDraftGateScreen
+      draft={scenarioDraft}
+      authoredScenario={lite2Scenario}
+      currentState={currentState}
+    />
+  );
 }

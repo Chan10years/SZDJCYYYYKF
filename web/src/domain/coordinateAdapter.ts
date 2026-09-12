@@ -27,7 +27,7 @@ export const MIRAGE_RADAR_METADATA: RadarMapMetadata = {
   radarWidth: 1024,
   radarHeight: 1024,
   source:
-    "https://github.com/CSGO-Analysis/csgo-maps-overviews/blob/master/overviews/de_mirage.txt",
+    "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_mirage.txt",
 };
 
 function assertFinite(value: number, field: string): void {

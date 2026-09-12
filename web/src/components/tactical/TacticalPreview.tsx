@@ -3,6 +3,7 @@
 import { motion, useReducedMotion } from "framer-motion";
 import type { CallId, Scenario } from "@/domain/types";
 import type { CurrentStatePreviewData } from "@/domain/currentStatePreview";
+import { LITE2_CURRENT_STATE_MAP_CALIBRATION } from "@/domain/mapCalibration";
 
 type TacticalPreviewProps = {
   scenario: Scenario;
@@ -54,8 +55,16 @@ export function TacticalPreview({
   const spec = scenario.previewByCall[call];
   const isCurrentState = currentState !== undefined;
   const gridId = `tp-grid-${scenario.id}-${call}`;
+  const usesLite2RasterFrame =
+    scenario.id === LITE2_SCENARIO_ID ||
+    scenario.mapBase === LITE2_CURRENT_STATE_MAP_CALIBRATION.asset;
   const mapOverlayTransform =
-    scenario.id === LITE2_SCENARIO_ID ? LITE2_LETTERBOX_TRANSFORM : undefined;
+    !isCurrentState && usesLite2RasterFrame
+      ? LITE2_LETTERBOX_TRANSFORM
+      : undefined;
+  const mapViewBox = isCurrentState
+    ? `0 0 ${LITE2_CURRENT_STATE_MAP_CALIBRATION.imageWidth} ${LITE2_CURRENT_STATE_MAP_CALIBRATION.imageHeight}`
+    : "0 0 100 100";
   const movementPhases = isCurrentState ? undefined : spec.movementPhases;
   const firstStageId = movementPhases?.[0]?.id ?? "regroup";
   const secondStageId = movementPhases?.[1]?.id ?? "execute";
@@ -103,7 +112,7 @@ export function TacticalPreview({
       )}
       <div className="relative overflow-hidden rounded-lg border border-app-line bg-app-elevated p-1">
         <svg
-          viewBox="0 0 100 100"
+          viewBox={mapViewBox}
           className="block h-auto w-full"
           role="img"
           aria-label={
@@ -129,9 +138,20 @@ export function TacticalPreview({
             </pattern>
           </defs>
 
-          {/* 地图底图：真实底图（含已人工核验的编号/阵营标记）或中性战术网格。
-              底图负责底层视觉；routes/zones 由 renderer 叠加，不重复绘制编号。 */}
-          {scenario.mapBase ? (
+          {/* Current-state uses a native-pixel clean raster. Authored scenarios
+              keep their existing 0..100 image and letterbox contract. */}
+          {currentState ? (
+            <image
+              href={currentState.asset}
+              x={0}
+              y={0}
+              width={LITE2_CURRENT_STATE_MAP_CALIBRATION.imageWidth}
+              height={LITE2_CURRENT_STATE_MAP_CALIBRATION.imageHeight}
+              preserveAspectRatio="none"
+              data-map-asset={currentState.asset}
+              data-map-frame={LITE2_CURRENT_STATE_MAP_CALIBRATION.coordinateFrame}
+            />
+          ) : scenario.mapBase ? (
             <>
               <image
                 href={scenario.mapBase}
@@ -141,7 +161,7 @@ export function TacticalPreview({
                 height={100}
                 preserveAspectRatio="xMidYMid meet"
               />
-              {scenario.id === LITE2_SCENARIO_ID && !currentState && (
+              {scenario.id === LITE2_SCENARIO_ID && (
                 <g aria-label="Lite2 修正版图例">
                   <rect
                     x={1}
@@ -171,7 +191,8 @@ export function TacticalPreview({
             </>
           )}
 
-          {/* Lite2 的 4:3 PNG 在方形 viewBox 中上下留白；routes/zones 使用同一矩阵回到图像坐标。 */}
+          {/* Authored Lite2 keeps its 4:3-in-square transform. Current-state
+              markers are already in the clean raster's native pixel frame. */}
           <g transform={mapOverlayTransform}>
             {currentState ? (
               <g aria-label="真实玩家当前位置">
@@ -188,32 +209,32 @@ export function TacticalPreview({
                     >
                       {isCarrier && (
                         <circle
-                          cx={player.normalizedPosition.x}
-                          cy={player.normalizedPosition.y}
-                          r={3.1}
+                          cx={player.imagePosition.x}
+                          cy={player.imagePosition.y}
+                          r={31}
                           fill="none"
                           stroke="#d06a6c"
-                          strokeWidth="0.65"
-                          strokeDasharray="1.2 0.8"
+                          strokeWidth="5"
+                          strokeDasharray="12 8"
                         />
                       )}
                       <circle
-                        cx={player.normalizedPosition.x}
-                        cy={player.normalizedPosition.y}
-                        r={player.alive ? 1.8 : 1.35}
+                        cx={player.imagePosition.x}
+                        cy={player.imagePosition.y}
+                        r={player.alive ? 18 : 14}
                         fill={player.alive ? color : "#5f6672"}
                         stroke="#eef1f5"
-                        strokeWidth="0.55"
+                        strokeWidth="5"
                         fillOpacity={player.alive ? 0.95 : 0.7}
                       />
                       <text
-                        x={player.normalizedPosition.x + 2.2}
-                        y={player.normalizedPosition.y + 0.7}
+                        x={player.imagePosition.x + 24}
+                        y={player.imagePosition.y + 6}
                         fill="#eef1f5"
-                        fontSize="1.8"
+                        fontSize="18"
                         paintOrder="stroke"
                         stroke="#111820"
-                        strokeWidth="0.45"
+                        strokeWidth="4"
                       >
                         {player.name}
                       </text>

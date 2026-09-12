@@ -2,6 +2,7 @@ import Image from "next/image";
 
 type IntroScreenProps = {
   onStart: () => void;
+  summary?: string;
 };
 
 /**
@@ -9,7 +10,7 @@ type IntroScreenProps = {
  * 标题/引导语/disclaimer 与按钮全部层叠于同一主视觉之上；
  * “开始体验”是英雄区的行动收口。双向渐变保证 HUD 区与文字区可读。
  */
-export function IntroScreen({ onStart }: IntroScreenProps) {
+export function IntroScreen({ onStart, summary }: IntroScreenProps) {
   return (
     <div className="relative flex min-h-dvh flex-col overflow-hidden">
       {/* 主视觉：整页铺满，移动端即页面最强视觉中心 */}
@@ -64,7 +65,7 @@ export function IntroScreen({ onStart }: IntroScreenProps) {
             <span aria-hidden="true">→</span>
           </button>
           <p className="text-center text-xs text-white/55 sm:text-left">
-            3 个案例 · 2 局已核验 · 1 局练习参考
+            {summary ?? "3 个案例 · 2 局已核验 · 1 局练习参考"}
           </p>
         </div>
       </div>

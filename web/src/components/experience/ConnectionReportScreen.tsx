@@ -9,6 +9,7 @@ import { OBSERVATION_CANDIDATES } from "@/domain/reportObservation";
 import { ReportResponseSchema } from "@/lib/aiParsing";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import { getAiSourceLabel } from "@/domain/aiSource";
+import type { Scenario } from "@/domain/types";
 import { ConnectionTrajectory } from "@/components/report/ConnectionTrajectory";
 import { PageFrame } from "@/components/layout/PageFrame";
 import { Num } from "@/components/layout/MetadataStrip";
@@ -16,6 +17,8 @@ import { Num } from "@/components/layout/MetadataStrip";
 type ConnectionReportScreenProps = {
   rounds: RoundResult[];
   onReset: () => void;
+  scenarioPool?: readonly Scenario[];
+  requestRemoteReport?: boolean;
 };
 
 type Observation = { text: string; source: "live" | "fallback" };
@@ -50,6 +53,8 @@ function ObservationGlyph() {
 export function ConnectionReportScreen({
   rounds,
   onReset,
+  scenarioPool = scenarios,
+  requestRemoteReport = true,
 }: ConnectionReportScreenProps) {
   const stats = calculateConnectionStats(rounds);
   const [observation, setObservation] = useState<Observation | null>(null);
@@ -58,6 +63,15 @@ export function ConnectionReportScreen({
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (!requestRemoteReport) {
+        if (!cancelled) {
+          setObservation({
+            text: buildFallbackReport(calculateConnectionStats(rounds)),
+            source: "fallback",
+          });
+        }
+        return;
+      }
       try {
         const data = await fetchWithTimeout(
           "/api/report",
@@ -99,7 +113,7 @@ export function ConnectionReportScreen({
     return () => {
       cancelled = true;
     };
-  }, [rounds]);
+  }, [requestRemoteReport, rounds]);
 
   const topReasons = stats.reasonFrequency
     .filter((entry) => entry.count > 0)
@@ -195,12 +209,12 @@ export function ConnectionReportScreen({
             <p className="mt-5 text-[12px] leading-relaxed text-app-muted">
               依据使用：
               {topReasons.map(({ scenarioId, reasonId, count }, i) => {
-                const scenario = scenarios.find((item) => item.id === scenarioId);
+                const scenario = scenarioPool.find((item) => item.id === scenarioId);
                 const label = scenario?.reasonOptions.find(
                   (reason) => reason.id === reasonId,
                 )?.label ?? reasonId;
                 const roundLabel = scenario
-                  ? `R${scenarios.indexOf(scenario) + 1} `
+                  ? `R${scenarioPool.indexOf(scenario) + 1} `
                   : "";
                 return (
                 <span key={`${scenarioId}:${reasonId}`}>

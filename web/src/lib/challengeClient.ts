@@ -2,7 +2,12 @@ import { ChallengeOutputSchema } from "@/domain/schemas";
 import { buildFallbackChallenge } from "@/domain/fallback";
 import { scenarios } from "@/data/scenarios";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
-import type { CallId, ChallengeOutput, ReasonId } from "@/domain/types";
+import type {
+  CallId,
+  ChallengeOutput,
+  ReasonId,
+  Scenario,
+} from "@/domain/types";
 
 type RequestChallengeArgs = {
   scenarioId: string;
@@ -18,10 +23,18 @@ export const CHALLENGE_CLIENT_TIMEOUT_MS = 5_000;
  */
 export async function requestChallengeOnClient(
   args: RequestChallengeArgs,
+  scenarioOverride?: Scenario,
+  useRemoteChallenge = true,
 ): Promise<ChallengeOutput> {
-  const scenario = scenarios.find((candidate) => candidate.id === args.scenarioId);
+  const scenario =
+    scenarioOverride ??
+    scenarios.find((candidate) => candidate.id === args.scenarioId);
   if (!scenario) {
     throw new Error(`Scenario not found: ${args.scenarioId}`);
+  }
+
+  if (!useRemoteChallenge) {
+    return buildFallbackChallenge(scenario, args.initialCall, args.reasonIds);
   }
 
   try {

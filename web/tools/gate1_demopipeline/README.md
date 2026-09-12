@@ -35,6 +35,24 @@ The producer records unavailable aggregate alive/round-state fields rather than 
 
 ## Coordinate provenance
 
-The Mirage overview adapter uses `pos_x=-3230`, `pos_y=1713`, `scale=5`, and a 1024×1024 overview coordinate frame. The metadata values are traceable to the `de_mirage.txt` overview record used by the product adapter. The existing `/maps/Lite2_Map.png` remains a separate 4:3 product image; its renderer letterbox transform is not mixed into world-coordinate conversion.
+The Mirage overview adapter uses `pos_x=-3230`, `pos_y=1713`, `scale=5`, and a 1024×1024 overview coordinate frame. The metadata values are traceable to the [`de_mirage.txt` overview record](https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_mirage.txt). Published Mirage landmark coordinates are cross-checked against the [CS2 Reference map table](https://cs2opendev.github.io/CS2OpenDev-Docs/maps/). The existing `/maps/Lite2_Map.png` remains a separate 4:3 product image; its renderer letterbox transform is not mixed into world-coordinate conversion.
+
+The current-state renderer uses the separate `/maps/Lite2_CurrentStateBase.png` asset. It is a deterministic derivative of the supplied `Lite2_Map.png`: the native 1448×1086 frame, map silhouette, walls, site landmarks, and spawn colours are retained; the five authored player/C4 regions and the baked legend are excluded. The original authored asset remains unchanged.
+
+Asset provenance and reproducibility:
+
+```text
+source: Lite2_Map.png
+source SHA-256: 0A722F0845150F27E9AD1AFA26BBF163695C2ACFE758A16F492707CE730AE831
+output: Lite2_CurrentStateBase.png
+output SHA-256: A1C4600C58B1283E67443A3CFE332EEE2923D8645A853117082AF08EF260E15B
+dimensions: 1448x1086 RGBA
+generator: python tools/gate1_demopipeline/build_clean_lite2_map.py
+```
+
+The product-side calibration explicitly bridges the overview frame to the supplied Lite2 raster. The published bomb-site anchors are B `(23,28)` → `(242,247)` and A `(54,76)` → `(732.5,979)` in native Lite2 pixels, producing:
+`imageX = -121.9193548387 + normalizedX * 15.8225806452` and
+`imageY = -180 + normalizedY * 15.25`.
+The CT/T spawn regions are independent visual checks at normalized `(28,70)` → approximately `(354,868)` and `(87,36)` → approximately `(1263,363)`, with recorded pixel tolerances. The current-state SVG uses `viewBox="0 0 1448 1086"`, so no authored `matrix(1 0 0 0.75 0 12.5)` transform is applied to real markers.
 
 The extracted state remains `verificationStatus: "draft"` and requires human QA. The raw `.dem` files are external inputs and must not be committed.

@@ -7,6 +7,11 @@ import {
   worldToNormalizedPosition,
   type TacticalMapPosition,
 } from "./coordinateAdapter";
+import {
+  LITE2_CURRENT_STATE_MAP_CALIBRATION,
+  normalizedToImagePosition,
+  type ImagePosition,
+} from "./mapCalibration";
 
 export type CurrentStatePreviewPlayer = {
   id: string;
@@ -20,6 +25,7 @@ export type CurrentStatePreviewPlayer = {
   worldPosition: NormalizedMatchState["players"][number]["worldPosition"];
   mapPosition: Pick<TacticalMapPosition, "radarX" | "radarY">;
   normalizedPosition: Pick<TacticalMapPosition, "x" | "y">;
+  imagePosition: ImagePosition;
 };
 
 export type CurrentStatePreviewData = {
@@ -55,7 +61,7 @@ export function buildCurrentStatePreview(input: unknown): CurrentStatePreviewDat
   return {
     kind: "current-match-state",
     map: "de_mirage",
-    asset: state.map.asset,
+    asset: LITE2_CURRENT_STATE_MAP_CALIBRATION.asset,
     round: state.round.number,
     parserRound: state.round.parserRound,
     tick: state.tick,
@@ -75,6 +81,7 @@ export function buildCurrentStatePreview(input: unknown): CurrentStatePreviewDat
         worldPosition: player.worldPosition,
         mapPosition: { radarX: position.radarX, radarY: position.radarY },
         normalizedPosition: { x: position.x, y: position.y },
+        imagePosition: normalizedToImagePosition(position),
       };
     }),
     bomb: {
