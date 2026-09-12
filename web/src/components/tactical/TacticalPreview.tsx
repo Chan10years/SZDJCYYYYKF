@@ -2,6 +2,7 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import type { CallId, Scenario } from "@/domain/types";
+import type { CurrentStatePreviewData } from "@/domain/currentStatePreview";
 
 type TacticalPreviewProps = {
   scenario: Scenario;
@@ -9,6 +10,8 @@ type TacticalPreviewProps = {
   animate?: boolean;
   /** full：完整预览（含 legend/metrics/disclaimer）；thumb：Decision 缩略方向图（仅底图+zones+routes）。 */
   variant?: "full" | "thumb";
+  /** Real-match snapshot mode. It is intentionally separate from authored previewByCall routes. */
+  currentState?: CurrentStatePreviewData;
 };
 
 const ZONE_KIND_COLOR: Record<string, string> = {
@@ -44,17 +47,20 @@ export function TacticalPreview({
   call,
   animate = false,
   variant = "full",
+  currentState,
 }: TacticalPreviewProps) {
   const reduce = useReducedMotion();
   const play = animate && !reduce;
   const spec = scenario.previewByCall[call];
+  const isCurrentState = currentState !== undefined;
   const gridId = `tp-grid-${scenario.id}-${call}`;
   const mapOverlayTransform =
     scenario.id === LITE2_SCENARIO_ID ? LITE2_LETTERBOX_TRANSFORM : undefined;
-  const movementPhases = spec.movementPhases;
+  const movementPhases = isCurrentState ? undefined : spec.movementPhases;
   const firstStageId = movementPhases?.[0]?.id ?? "regroup";
   const secondStageId = movementPhases?.[1]?.id ?? "execute";
   const hasStagedMovement =
+    !isCurrentState &&
     movementPhases?.length === 2 &&
     spec.routes.every(
       (route) =>
@@ -65,6 +71,14 @@ export function TacticalPreview({
 
   return (
     <div className="flex flex-col gap-2.5">
+      {variant === "full" && currentState && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-app-line bg-app-elevated px-3 py-2 text-[11px] leading-tight text-app-muted">
+          <span className="font-medium text-app-text">真实比赛状态 · 静态截点</span>
+          <span className="font-mono tabular-nums">
+            Round {currentState.round} · Tick {currentState.tick} · {currentState.timeLabel}
+          </span>
+        </div>
+      )}
       {variant === "full" && hasStagedMovement && (
         <div
           aria-label={`Call ${call} 两阶段时序`}
@@ -92,7 +106,12 @@ export function TacticalPreview({
           viewBox="0 0 100 100"
           className="block h-auto w-full"
           role="img"
-          aria-label={`Call ${call} 战术空间预览`}
+          aria-label={
+            currentState
+              ? `真实比赛状态 Round ${currentState.round} Tick ${currentState.tick} 地图`
+              : `Call ${call} 战术空间预览`
+          }
+          data-current-state={currentState ? "true" : undefined}
         >
           <defs>
             <pattern
@@ -122,7 +141,7 @@ export function TacticalPreview({
                 height={100}
                 preserveAspectRatio="xMidYMid meet"
               />
-              {scenario.id === LITE2_SCENARIO_ID && (
+              {scenario.id === LITE2_SCENARIO_ID && !currentState && (
                 <g aria-label="Lite2 修正版图例">
                   <rect
                     x={1}
@@ -154,28 +173,78 @@ export function TacticalPreview({
 
           {/* Lite2 的 4:3 PNG 在方形 viewBox 中上下留白；routes/zones 使用同一矩阵回到图像坐标。 */}
           <g transform={mapOverlayTransform}>
-            {/* 空间区域 */}
-            {spec.zones.map((zone, i) => {
-              const color = ZONE_KIND_COLOR[zone.kind] ?? "#98a2b1";
-              return (
-                <motion.circle
-                  key={`${zone.kind}-${i}`}
-                  cx={zone.x}
-                  cy={zone.y}
-                  r={zone.radius}
-                  fill={color}
-                  fillOpacity={play ? 0 : 0.16}
-                  initial={play ? { fillOpacity: 0, r: zone.radius * 0.4 } : undefined}
-                  animate={play ? { fillOpacity: 0.16, r: zone.radius } : undefined}
-                  transition={{ duration: 0.7, delay: 0.15 * i }}
-                  stroke={color}
-                  strokeOpacity={0.35}
-                />
-              );
-            })}
+            {currentState ? (
+              <g aria-label="真实玩家当前位置">
+                {currentState.players.map((player) => {
+                  const color = player.side === "CT" ? "#6fb3c9" : "#dfa45b";
+                  const isCarrier = currentState.bomb.carrierId === player.id;
+                  return (
+                    <g
+                      key={player.id}
+                      data-current-player={player.id}
+                      aria-label={`${player.name} · ${player.team} · ${
+                        player.alive ? "存活" : "已淘汰"
+                      }`}
+                    >
+                      {isCarrier && (
+                        <circle
+                          cx={player.normalizedPosition.x}
+                          cy={player.normalizedPosition.y}
+                          r={3.1}
+                          fill="none"
+                          stroke="#d06a6c"
+                          strokeWidth="0.65"
+                          strokeDasharray="1.2 0.8"
+                        />
+                      )}
+                      <circle
+                        cx={player.normalizedPosition.x}
+                        cy={player.normalizedPosition.y}
+                        r={player.alive ? 1.8 : 1.35}
+                        fill={player.alive ? color : "#5f6672"}
+                        stroke="#eef1f5"
+                        strokeWidth="0.55"
+                        fillOpacity={player.alive ? 0.95 : 0.7}
+                      />
+                      <text
+                        x={player.normalizedPosition.x + 2.2}
+                        y={player.normalizedPosition.y + 0.7}
+                        fill="#eef1f5"
+                        fontSize="1.8"
+                        paintOrder="stroke"
+                        stroke="#111820"
+                        strokeWidth="0.45"
+                      >
+                        {player.name}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+            ) : (
+              <>
+                {/* 空间区域 */}
+                {spec.zones.map((zone, i) => {
+                  const color = ZONE_KIND_COLOR[zone.kind] ?? "#98a2b1";
+                  return (
+                    <motion.circle
+                      key={`${zone.kind}-${i}`}
+                      cx={zone.x}
+                      cy={zone.y}
+                      r={zone.radius}
+                      fill={color}
+                      fillOpacity={play ? 0 : 0.16}
+                      initial={play ? { fillOpacity: 0, r: zone.radius * 0.4 } : undefined}
+                      animate={play ? { fillOpacity: 0.16, r: zone.radius } : undefined}
+                      transition={{ duration: 0.7, delay: 0.15 * i }}
+                      stroke={color}
+                      strokeOpacity={0.35}
+                    />
+                  );
+                })}
 
-            {/* 路线 + 玩家沿途标记 */}
-            {spec.routes.map((route, ri) => {
+                {/* 路线 + 玩家沿途标记 */}
+                {spec.routes.map((route, ri) => {
               const phaseBreak = route.phaseBreak ?? 0;
               const isStagedRoute =
                 hasStagedMovement &&
@@ -190,8 +259,8 @@ export function TacticalPreview({
               const regroupDelay = STAGED_ROUTE_STAGGER * ri;
               const executeDelay = STAGED_EXECUTE_DELAY + STAGED_ROUTE_STAGGER * ri;
 
-              return (
-                <g key={route.playerId}>
+                  return (
+                    <g key={route.playerId}>
                   {isStagedRoute ? (
                     <>
                       {play ? (
@@ -319,14 +388,16 @@ export function TacticalPreview({
                       ))}
                     </>
                   )}
-                </g>
-              );
-            })}
+                    </g>
+                  );
+                })}
+              </>
+            )}
           </g>
         </svg>
 
         {/* 区域标签（thumb 隐藏）：压图左下，轻量底条，不占垂直空间 */}
-        {variant === "full" && spec.zones.length > 0 && (
+        {variant === "full" && !currentState && spec.zones.length > 0 && (
           <p className="absolute bottom-2.5 left-2.5 flex max-w-[85%] flex-wrap items-center gap-x-3 gap-y-1 rounded bg-black/55 px-2 py-1 text-[11px] text-app-text/90 backdrop-blur-[2px]">
             {spec.zones.map((zone, i) => (
               <span key={`${zone.kind}-label-${i}`} className="flex items-center gap-1.5">
@@ -344,7 +415,7 @@ export function TacticalPreview({
       </div>
 
       {/* 定性指标（thumb 隐藏）：轻量底部信息，地图压过文字 */}
-      {variant === "full" && spec.metrics.length > 0 && (
+      {variant === "full" && !currentState && spec.metrics.length > 0 && (
         <p className="text-[12px] leading-relaxed text-app-muted">
           {spec.metrics.map((m, i) => (
             <span key={m.label}>
@@ -357,7 +428,9 @@ export function TacticalPreview({
 
       {variant === "full" && (
         <p className="font-mono text-[11px] text-app-muted">
-          战术空间预览 · 非比赛结果预测
+          {currentState
+            ? "真实比赛状态 · 非执行路线 · 非比赛结果预测"
+            : "战术空间预览 · 非比赛结果预测"}
         </p>
       )}
     </div>
