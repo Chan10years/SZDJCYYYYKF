@@ -35,8 +35,13 @@ const savedSession: PersistedSession = {
   scenarioIndex: 1,
   initialCall: "B",
   reasonIds: ["time_pressure"],
+  optionalFreeformReasoning: "",
   challenge: null,
+  userResponseToChallenge: null,
+  changeReason: "",
   finalCall: null,
+  postRoundReflection: "",
+  nextTrainingHypothesis: "",
   completedRounds: [],
 };
 

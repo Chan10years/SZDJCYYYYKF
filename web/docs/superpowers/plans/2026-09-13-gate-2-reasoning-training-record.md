@@ -28,6 +28,8 @@
 - Modify: `src/domain/schemas.ts`
 - Modify: `src/domain/types.ts`
 - Modify: `src/domain/sessionSchema.ts`
+- Modify: `src/test/storage.test.ts`
+- Modify: `src/test/freshEntry.test.ts`
 - Test: `src/test/trainingRecord.test.ts`
 
 **Interfaces:**
@@ -82,7 +84,7 @@ Expected: PASS, with legacy `RoundResult` data still accepted where the new hist
 - [ ] **Step 5: Commit the contract slice.**
 
 ```bash
-git add src/domain/trainingRecord.ts src/domain/schemas.ts src/domain/types.ts src/domain/sessionSchema.ts src/test/trainingRecord.test.ts
+git add src/domain/trainingRecord.ts src/domain/schemas.ts src/domain/types.ts src/domain/sessionSchema.ts src/test/trainingRecord.test.ts src/test/storage.test.ts src/test/freshEntry.test.ts
 git commit -m "feat: define Gate 2 reasoning record contract"
 ```
 

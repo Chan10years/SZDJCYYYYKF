@@ -22,6 +22,8 @@ export const ExperiencePhaseSchema = z.enum([
   "summary",
 ]);
 
+export const ChallengeResponseSchema = z.enum(["keep", "revise"]);
+
 export const ScenarioVerificationStatusSchema = z.enum([
   "draft",
   "practice",
@@ -158,11 +160,18 @@ export const RoundResultSchema = z.object({
   scenarioId: z.string(),
   initialCall: CallIdSchema,
   reasonIds: z.array(ReasonIdSchema).min(1).max(2),
+  optionalFreeformReasoning: z.string().trim().max(500).optional(),
+  aiChallenge: ChallengeOutputSchema.optional(),
   aiStance: z.enum(["agree", "challenge"]),
   aiAlternativeCall: CallIdSchema.nullable(),
   aiResponseSource: z.enum(["live", "fallback"]),
+  userResponseToChallenge: ChallengeResponseSchema.optional(),
+  changeReason: z.string().trim().max(500).optional(),
   finalCall: CallIdSchema,
   changedAfterAI: z.boolean(),
   professionalCall: CallIdSchema,
+  professionalReference: ProfessionalReferenceSchema.optional(),
+  postRoundReflection: z.string().trim().max(500).optional(),
+  nextTrainingHypothesis: z.string().trim().max(500).optional(),
   completedAt: z.string(),
 });

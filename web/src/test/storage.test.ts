@@ -35,6 +35,7 @@ const validSession: PersistedSession = {
   scenarioIndex: 0,
   initialCall: "A",
   reasonIds: ["known_position"],
+  optionalFreeformReasoning: "",
   challenge: {
     stance: "challenge",
     acknowledge: "你把「已知位置」作为主要依据。",
@@ -43,7 +44,11 @@ const validSession: PersistedSession = {
     alternativeCall: "B",
     source: "fallback",
   },
+  userResponseToChallenge: null,
+  changeReason: "",
   finalCall: null,
+  postRoundReflection: "",
+  nextTrainingHypothesis: "",
   completedRounds: [],
 };
 

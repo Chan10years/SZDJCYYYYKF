@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   CallIdSchema,
+  ChallengeResponseSchema,
   ChallengeOutputSchema,
   ExperiencePhaseSchema,
   ReasonIdSchema,
@@ -11,6 +12,7 @@ import {
 
 export type Scenario = z.infer<typeof ScenarioSchema>;
 export type ChallengeOutput = z.infer<typeof ChallengeOutputSchema>;
+export type ChallengeResponse = z.infer<typeof ChallengeResponseSchema>;
 export type RoundResult = z.infer<typeof RoundResultSchema>;
 export type CallId = z.infer<typeof CallIdSchema>;
 export type ReasonId = z.infer<typeof ReasonIdSchema>;
