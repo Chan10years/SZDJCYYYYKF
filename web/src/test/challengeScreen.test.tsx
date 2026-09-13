@@ -10,6 +10,7 @@ describe("ChallengeScreen — AI source traceability", () => {
         scenario={scenarios[0]}
         initialCall="A"
         reasonIds={[scenarios[0].reasonOptions[0].id]}
+        changeReason="我会先检查这个风险。"
         challenge={{
           stance: "agree",
           acknowledge: "承接。",
@@ -18,6 +19,7 @@ describe("ChallengeScreen — AI source traceability", () => {
           alternativeCall: null,
           source: "fallback",
         }}
+        onChangeReason={() => undefined}
         onKeep={() => undefined}
         onAccept={() => undefined}
       />,

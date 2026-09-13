@@ -17,6 +17,32 @@ const challenge: ChallengeOutput = {
 };
 
 describe("RoundReviewScreen — review semantics", () => {
+  it("shows the editable takeaway and next-check fields", () => {
+    render(
+      <RoundReviewScreen
+        scenario={scenario}
+        initialCall="A"
+        finalCall="A"
+        challenge={challenge}
+        postRoundReflection="我需要更明确地说出关键条件。"
+        nextTrainingHypothesis="下一次先检查关键条件是否仍成立。"
+        onPostRoundReflectionChange={vi.fn()}
+        onNextTrainingHypothesisChange={vi.fn()}
+        primaryLabel="下一局"
+        onComplete={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByText("本局 takeaway / 反思（可选）").length)
+      .toBeGreaterThan(0);
+    expect(
+      screen.getAllByDisplayValue("我需要更明确地说出关键条件。").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText("下一次检查").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByDisplayValue("下一次先检查关键条件是否仍成立。").length,
+    ).toBeGreaterThan(0);
+  });
+
   it("attaches the AI challenge as risk only when the final call is kept", () => {
     render(
       <RoundReviewScreen

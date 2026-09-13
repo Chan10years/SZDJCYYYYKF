@@ -4,12 +4,17 @@ import type { CallId, ChallengeOutput, Scenario } from "@/domain/types";
 import { TacticalPreview } from "@/components/tactical/TacticalPreview";
 import { PageFrame } from "@/components/layout/PageFrame";
 import { getScenarioStatusCopy } from "@/domain/scenarioStatus";
+import { buildNextTrainingHypothesis } from "@/domain/trainingRecord";
 
 type RoundReviewScreenProps = {
   scenario: Scenario;
   initialCall: CallId;
   finalCall: CallId;
   challenge: ChallengeOutput;
+  postRoundReflection?: string;
+  nextTrainingHypothesis?: string;
+  onPostRoundReflectionChange?: (value: string) => void;
+  onNextTrainingHypothesisChange?: (value: string) => void;
   primaryLabel: string;
   onComplete: () => void;
 };
@@ -26,6 +31,10 @@ export function RoundReviewScreen({
   initialCall,
   finalCall,
   challenge,
+  postRoundReflection,
+  nextTrainingHypothesis,
+  onPostRoundReflectionChange,
+  onNextTrainingHypothesisChange,
   primaryLabel,
   onComplete,
 }: RoundReviewScreenProps) {
@@ -33,6 +42,9 @@ export function RoundReviewScreen({
   const challengeAppliesToFinal = finalCall === initialCall;
   const pro = scenario.professional;
   const statusCopy = getScenarioStatusCopy(scenario.verificationStatus);
+  const nextCheckValue =
+    nextTrainingHypothesis ??
+    buildNextTrainingHypothesis({ initialCall, finalCall, challenge });
 
   const userLabel = (
     <p className="text-[12px] font-medium text-app-user">
@@ -112,12 +124,53 @@ export function RoundReviewScreen({
     </ol>
   );
 
+  const trainingFields = (
+    <section className="flex flex-col gap-3 border-t border-app-line pt-4">
+      <p className="text-[12px] font-medium text-app-muted">训练记录</p>
+      <label
+        htmlFor="post-round-reflection"
+        className="text-[13px] font-medium text-app-text"
+      >
+        本局 takeaway / 反思（可选）
+      </label>
+      <textarea
+        id="post-round-reflection"
+        value={postRoundReflection ?? ""}
+        onChange={(event) => onPostRoundReflectionChange?.(event.target.value)}
+        maxLength={500}
+        rows={3}
+        placeholder="看完参考路径后，留下你真正想带走的一点。"
+        className="w-full resize-y rounded-md border border-app-line bg-transparent px-3 py-2.5 text-[13px] leading-relaxed text-app-text outline-none transition-colors placeholder:text-app-muted/60 focus:border-app-user"
+      />
+      <label
+        htmlFor="next-training-hypothesis"
+        className="mt-1 text-[13px] font-medium text-app-text"
+      >
+        下一次检查
+      </label>
+      <textarea
+        id="next-training-hypothesis"
+        value={nextCheckValue}
+        onChange={(event) =>
+          onNextTrainingHypothesisChange?.(event.target.value)
+        }
+        maxLength={500}
+        rows={3}
+        className="w-full resize-y rounded-md border border-app-line bg-transparent px-3 py-2.5 text-[13px] leading-relaxed text-app-text outline-none transition-colors focus:border-app-user"
+      />
+      <p className="text-[11px] leading-relaxed text-app-muted">
+        这条 next check 只描述下一次要验证的条件，不代表某个 Call 是标准答案。
+      </p>
+    </section>
+  );
+
   const userSide = (
     <div className="flex flex-col gap-4">
       {userLabel}
       {userMap}
       {userSummary}
       {userAftermath}
+      {trainingFields}
     </div>
   );
 
@@ -171,6 +224,7 @@ export function RoundReviewScreen({
         {userSummary}
         {userAftermath}
         {proObservations}
+        {trainingFields}
         <div className="pt-1">{completeButton("w-full")}</div>
       </div>
 

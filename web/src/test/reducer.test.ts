@@ -91,6 +91,40 @@ describe("experienceReducer", () => {
     expect(s.phase).toBe("challenge");
   });
 
+  it("stores initial reasoning and requires a response reason before leaving Challenge", () => {
+    const decision = experienceReducer(decisionState, {
+      type: "SET_INITIAL_REASONING",
+      value: "先确认已知信息，再比较风险。",
+    });
+    const challenged = experienceReducer(decision, {
+      type: "REQUEST_CHALLENGE",
+    });
+    const resolved = experienceReducer(challenged, {
+      type: "CHALLENGE_RESOLVED",
+      challenge,
+    });
+    const blocked = experienceReducer(resolved, {
+      type: "RESPOND_TO_CHALLENGE",
+      response: "keep",
+    });
+    expect(blocked.phase).toBe("challenge");
+
+    const withReason = experienceReducer(resolved, {
+      type: "SET_CHANGE_REASON",
+      value: "这个风险仍不足以改变我的判断。",
+    });
+    const answered = experienceReducer(withReason, {
+      type: "RESPOND_TO_CHALLENGE",
+      response: "keep",
+    });
+    expect(answered.optionalFreeformReasoning).toBe(
+      "先确认已知信息，再比较风险。",
+    );
+    expect(answered.userResponseToChallenge).toBe("keep");
+    expect(answered.finalCall).toBe(answered.initialCall);
+    expect(answered.phase).toBe("preview");
+  });
+
   it("resolves the challenge into challenge phase", () => {
     const s = experienceReducer(
       { ...decisionState, phase: "challenge" },
@@ -136,6 +170,29 @@ describe("experienceReducer", () => {
     expect(round.changedAfterAI).toBe(false);
     expect(s.phase).toBe("situation");
     expect(s.scenarioIndex).toBe(1);
+  });
+
+  it("completes a round with the full reasoning chain and next check", () => {
+    const completed = experienceReducer(
+      {
+        ...reviewState,
+        optionalFreeformReasoning: "先确认空间，再决定是否提速。",
+        userResponseToChallenge: "keep",
+        changeReason: "AI 提到的风险还没有改变关键条件。",
+        postRoundReflection: "我需要更明确地说出关键条件。",
+        nextTrainingHypothesis: "下一次先检查关键条件是否仍成立。",
+      },
+      { type: "COMPLETE_ROUND" },
+    );
+    expect(completed.completedRounds[0]).toMatchObject({
+      optionalFreeformReasoning: "先确认空间，再决定是否提速。",
+      aiChallenge: challenge,
+      userResponseToChallenge: "keep",
+      changeReason: "AI 提到的风险还没有改变关键条件。",
+      professionalReference: scenarios[0].professional,
+      postRoundReflection: "我需要更明确地说出关键条件。",
+      nextTrainingHypothesis: "下一次先检查关键条件是否仍成立。",
+    });
   });
 
   it("after the third round moves to summary", () => {

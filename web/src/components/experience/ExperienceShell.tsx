@@ -146,9 +146,13 @@ export function ExperienceShell({
           scenario={scenario}
           initialCall={state.initialCall}
           reasonIds={state.reasonIds}
+          optionalFreeformReasoning={state.optionalFreeformReasoning}
           onSelectCall={(call) => dispatch({ type: "SET_CALL", call })}
           onToggleReason={(reason) =>
             dispatch({ type: "TOGGLE_REASON", reason })
+          }
+          onReasoningChange={(value) =>
+            dispatch({ type: "SET_INITIAL_REASONING", value })
           }
           onLock={() => dispatch({ type: "REQUEST_CHALLENGE" })}
         />
@@ -160,8 +164,16 @@ export function ExperienceShell({
           initialCall={state.initialCall}
           reasonIds={state.reasonIds}
           challenge={state.challenge}
-          onKeep={() => dispatch({ type: "KEEP_INITIAL" })}
-          onAccept={() => dispatch({ type: "ACCEPT_ALTERNATIVE" })}
+          changeReason={state.changeReason}
+          onChangeReason={(value) =>
+            dispatch({ type: "SET_CHANGE_REASON", value })
+          }
+          onKeep={() =>
+            dispatch({ type: "RESPOND_TO_CHALLENGE", response: "keep" })
+          }
+          onAccept={() =>
+            dispatch({ type: "RESPOND_TO_CHALLENGE", response: "revise" })
+          }
         />
       ) : (
         <NotYet phase={state.phase} />
@@ -192,6 +204,14 @@ export function ExperienceShell({
           initialCall={state.initialCall}
           finalCall={state.finalCall}
           challenge={state.challenge}
+          postRoundReflection={state.postRoundReflection}
+          nextTrainingHypothesis={state.nextTrainingHypothesis}
+          onPostRoundReflectionChange={(value) =>
+            dispatch({ type: "SET_POST_ROUND_REFLECTION", value })
+          }
+          onNextTrainingHypothesisChange={(value) =>
+            dispatch({ type: "SET_NEXT_TRAINING_HYPOTHESIS", value })
+          }
           primaryLabel={
             state.scenarioIndex === scenarioPool.length - 1
               ? "查看连接报告"

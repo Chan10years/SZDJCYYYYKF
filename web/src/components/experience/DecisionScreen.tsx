@@ -6,8 +6,10 @@ type DecisionScreenProps = {
   scenario: Scenario;
   initialCall: CallId | null;
   reasonIds: ReasonId[];
+  optionalFreeformReasoning: string;
   onSelectCall: (call: CallId) => void;
   onToggleReason: (reason: ReasonId) => void;
+  onReasoningChange: (value: string) => void;
   onLock: () => void;
 };
 
@@ -20,8 +22,10 @@ export function DecisionScreen({
   scenario,
   initialCall,
   reasonIds,
+  optionalFreeformReasoning,
   onSelectCall,
   onToggleReason,
+  onReasoningChange,
   onLock,
 }: DecisionScreenProps) {
   const canSubmit =
@@ -125,6 +129,29 @@ export function DecisionScreen({
     </fieldset>
   );
 
+  const reasoningField = (
+    <div className="flex flex-col gap-2">
+      <label
+        htmlFor="initial-reasoning"
+        className="text-[14px] font-semibold text-app-text"
+      >
+        补充你的初始理由（可选）
+      </label>
+      <textarea
+        id="initial-reasoning"
+        value={optionalFreeformReasoning}
+        onChange={(event) => onReasoningChange(event.target.value)}
+        maxLength={500}
+        rows={3}
+        placeholder="如果愿意，用一句话写下你判断时最在意的条件。"
+        className="w-full resize-y rounded-md border border-app-line bg-transparent px-3 py-2.5 text-[13px] leading-relaxed text-app-text outline-none transition-colors placeholder:text-app-muted/60 focus:border-app-user"
+      />
+      <p className="text-[11px] leading-relaxed text-app-muted">
+        这段话会作为你的独立判断记录，不会被 AI 改写。
+      </p>
+    </div>
+  );
+
   const lockButton = (
     <div>
       <button
@@ -157,6 +184,7 @@ export function DecisionScreen({
         <div>{callsField}</div>
         <div className="flex flex-col gap-6">
           {reasonsField}
+          {reasoningField}
           {lockButton}
         </div>
       </div>
@@ -165,6 +193,7 @@ export function DecisionScreen({
       <div className="flex flex-col gap-5 py-5 lg:hidden">
         {callsField}
         {reasonsField}
+        {reasoningField}
         {lockButton}
       </div>
     </PageFrame>

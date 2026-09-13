@@ -1,5 +1,6 @@
 import type {
   CallId,
+  ChallengeResponse,
   ChallengeOutput,
   ExperiencePhase,
   ReasonId,
@@ -7,14 +8,20 @@ import type {
   Scenario,
 } from "./types";
 import { scenarios } from "@/data/scenarios";
+import { buildNextTrainingHypothesis } from "./trainingRecord";
 
 export type ExperienceState = {
   phase: ExperiencePhase;
   scenarioIndex: number;
   initialCall: CallId | null;
   reasonIds: ReasonId[];
+  optionalFreeformReasoning: string;
   challenge: ChallengeOutput | null;
+  userResponseToChallenge: ChallengeResponse | null;
+  changeReason: string;
   finalCall: CallId | null;
+  postRoundReflection: string;
+  nextTrainingHypothesis: string;
   completedRounds: RoundResult[];
 };
 
@@ -23,8 +30,13 @@ export const initialState: ExperienceState = {
   scenarioIndex: 0,
   initialCall: null,
   reasonIds: [],
+  optionalFreeformReasoning: "",
   challenge: null,
+  userResponseToChallenge: null,
+  changeReason: "",
   finalCall: null,
+  postRoundReflection: "",
+  nextTrainingHypothesis: "",
   completedRounds: [],
 };
 
@@ -33,12 +45,17 @@ export type ExperienceAction =
   | { type: "BEGIN_DECISION" }
   | { type: "SET_CALL"; call: CallId }
   | { type: "TOGGLE_REASON"; reason: ReasonId }
+  | { type: "SET_INITIAL_REASONING"; value: string }
   | { type: "REQUEST_CHALLENGE" }
   | { type: "CHALLENGE_RESOLVED"; challenge: ChallengeOutput }
+  | { type: "SET_CHANGE_REASON"; value: string }
+  | { type: "RESPOND_TO_CHALLENGE"; response: ChallengeResponse }
   | { type: "KEEP_INITIAL" }
   | { type: "ACCEPT_ALTERNATIVE" }
   | { type: "SHOW_REFERENCE" }
   | { type: "SHOW_REVIEW" }
+  | { type: "SET_POST_ROUND_REFLECTION"; value: string }
+  | { type: "SET_NEXT_TRAINING_HYPOTHESIS"; value: string }
   | { type: "COMPLETE_ROUND" }
   | { type: "RESET" }
   | { type: "HYDRATE"; payload: ExperienceState };
@@ -49,6 +66,41 @@ function canRequestChallenge(state: ExperienceState): boolean {
     state.reasonIds.length >= 1 &&
     state.reasonIds.length <= 2
   );
+}
+
+function resolveChallengeResponse(
+  state: ExperienceState,
+  response: ChallengeResponse,
+  requireReason: boolean,
+): ExperienceState {
+  if (
+    state.phase !== "challenge" ||
+    state.challenge === null ||
+    state.initialCall === null
+  ) {
+    return state;
+  }
+  if (requireReason && state.changeReason.trim().length === 0) {
+    return state;
+  }
+  if (response === "revise" && state.challenge.alternativeCall === null) {
+    return state;
+  }
+
+  const finalCall =
+    response === "revise"
+      ? state.challenge.alternativeCall
+      : state.initialCall;
+  if (finalCall === null) {
+    return state;
+  }
+
+  return {
+    ...state,
+    userResponseToChallenge: response,
+    finalCall,
+    phase: "preview",
+  };
 }
 
 export function experienceReducer(
@@ -88,6 +140,15 @@ export function experienceReducer(
       return { ...state, reasonIds };
     }
 
+    case "SET_INITIAL_REASONING":
+      if (state.phase !== "decision") {
+        return state;
+      }
+      return {
+        ...state,
+        optionalFreeformReasoning: action.value.slice(0, 500),
+      };
+
     case "REQUEST_CHALLENGE":
       if (state.phase !== "decision" || !canRequestChallenge(state)) {
         return state;
@@ -100,25 +161,20 @@ export function experienceReducer(
       }
       return { ...state, challenge: action.challenge, phase: "challenge" };
 
-    case "KEEP_INITIAL":
-      if (state.phase !== "challenge" || state.initialCall === null) {
+    case "SET_CHANGE_REASON":
+      if (state.phase !== "challenge") {
         return state;
       }
-      return { ...state, finalCall: state.initialCall, phase: "preview" };
+      return { ...state, changeReason: action.value.slice(0, 500) };
+
+    case "RESPOND_TO_CHALLENGE":
+      return resolveChallengeResponse(state, action.response, true);
+
+    case "KEEP_INITIAL":
+      return resolveChallengeResponse(state, "keep", false);
 
     case "ACCEPT_ALTERNATIVE": {
-      if (
-        state.phase !== "challenge" ||
-        state.challenge === null ||
-        state.challenge.alternativeCall === null
-      ) {
-        return state;
-      }
-      return {
-        ...state,
-        finalCall: state.challenge.alternativeCall,
-        phase: "preview",
-      };
+      return resolveChallengeResponse(state, "revise", false);
     }
 
     case "SHOW_REFERENCE":
@@ -131,7 +187,37 @@ export function experienceReducer(
       if (state.phase !== "reference") {
         return state;
       }
-      return { ...state, phase: "review" };
+      {
+        const scenario = scenarioPool[state.scenarioIndex];
+        const nextTrainingHypothesis =
+          state.nextTrainingHypothesis.trim().length > 0 ||
+          !scenario ||
+          state.initialCall === null ||
+          state.finalCall === null ||
+          state.challenge === null
+            ? state.nextTrainingHypothesis
+            : buildNextTrainingHypothesis({
+                initialCall: state.initialCall,
+                finalCall: state.finalCall,
+                challenge: state.challenge,
+              });
+        return { ...state, phase: "review", nextTrainingHypothesis };
+      }
+
+    case "SET_POST_ROUND_REFLECTION":
+      if (state.phase !== "review") {
+        return state;
+      }
+      return { ...state, postRoundReflection: action.value.slice(0, 500) };
+
+    case "SET_NEXT_TRAINING_HYPOTHESIS":
+      if (state.phase !== "review") {
+        return state;
+      }
+      return {
+        ...state,
+        nextTrainingHypothesis: action.value.slice(0, 500),
+      };
 
     case "COMPLETE_ROUND": {
       if (
@@ -150,12 +236,28 @@ export function experienceReducer(
         scenarioId: scenario.id,
         initialCall: state.initialCall,
         reasonIds: state.reasonIds,
+        optionalFreeformReasoning:
+          state.optionalFreeformReasoning.trim() || undefined,
+        aiChallenge: state.challenge,
         aiStance: state.challenge.stance,
         aiAlternativeCall: state.challenge.alternativeCall,
         aiResponseSource: state.challenge.source,
+        userResponseToChallenge:
+          state.userResponseToChallenge ??
+          (state.finalCall === state.initialCall ? "keep" : "revise"),
+        changeReason: state.changeReason.trim() || undefined,
         finalCall: state.finalCall,
         changedAfterAI: state.finalCall !== state.initialCall,
         professionalCall: scenario.professional.call,
+        professionalReference: scenario.professional,
+        postRoundReflection: state.postRoundReflection.trim() || undefined,
+        nextTrainingHypothesis:
+          state.nextTrainingHypothesis.trim() ||
+          buildNextTrainingHypothesis({
+            initialCall: state.initialCall,
+            finalCall: state.finalCall,
+            challenge: state.challenge,
+          }),
         completedAt: new Date().toISOString(),
       };
       const completedRounds = [...state.completedRounds, round];
@@ -167,8 +269,13 @@ export function experienceReducer(
           scenarioIndex: Math.max(0, scenarioPool.length - 1),
           initialCall: null,
           reasonIds: [],
+          optionalFreeformReasoning: "",
           challenge: null,
+          userResponseToChallenge: null,
+          changeReason: "",
           finalCall: null,
+          postRoundReflection: "",
+          nextTrainingHypothesis: "",
           completedRounds,
         };
       }
@@ -177,8 +284,13 @@ export function experienceReducer(
         scenarioIndex: nextIndex,
         initialCall: null,
         reasonIds: [],
+        optionalFreeformReasoning: "",
         challenge: null,
+        userResponseToChallenge: null,
+        changeReason: "",
         finalCall: null,
+        postRoundReflection: "",
+        nextTrainingHypothesis: "",
         completedRounds,
       };
     }

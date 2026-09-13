@@ -10,6 +10,8 @@ type ChallengeScreenProps = {
   initialCall: CallId;
   reasonIds: ReasonId[];
   challenge: ChallengeOutput | null;
+  changeReason: string;
+  onChangeReason: (value: string) => void;
   onKeep: () => void;
   onAccept: () => void;
 };
@@ -24,6 +26,8 @@ export function ChallengeScreen({
   initialCall,
   reasonIds,
   challenge,
+  changeReason,
+  onChangeReason,
   onKeep,
   onAccept,
 }: ChallengeScreenProps) {
@@ -35,6 +39,7 @@ export function ChallengeScreen({
     )
     .join(" · ");
   const alternative = challenge?.alternativeCall ?? null;
+  const canRespond = challenge !== null && changeReason.trim().length > 0;
 
   const header = (
     <header className="pt-4">
@@ -66,6 +71,7 @@ export function ChallengeScreen({
           <button
             type="button"
             onClick={onKeep}
+            disabled={!canRespond}
             className="h-12 rounded-md border border-app-line text-[15px] font-medium text-app-text transition-colors hover:border-app-muted"
           >
             保持 {initialCall}
@@ -73,6 +79,7 @@ export function ChallengeScreen({
           <button
             type="button"
             onClick={onAccept}
+            disabled={!canRespond}
             className="h-12 rounded-md border border-app-line text-[15px] font-medium text-app-text transition-colors hover:border-app-muted"
           >
             调整为 {alternative}
@@ -82,6 +89,7 @@ export function ChallengeScreen({
         <button
           type="button"
           onClick={onKeep}
+          disabled={!canRespond}
           className="h-12 rounded-md border border-app-line px-8 text-[15px] font-medium text-app-text transition-colors hover:border-app-muted"
         >
           继续
@@ -131,6 +139,22 @@ export function ChallengeScreen({
       <p className="mt-6 text-[13px] leading-relaxed text-app-muted">
         基于这一点，你会保持原判断，还是调整？
       </p>
+
+      <label
+        htmlFor="challenge-response-reason"
+        className="mt-5 text-[13px] font-medium text-app-text"
+      >
+        你为什么保持或改判？
+      </label>
+      <textarea
+        id="challenge-response-reason"
+        value={changeReason}
+        onChange={(event) => onChangeReason(event.target.value)}
+        maxLength={500}
+        rows={3}
+        placeholder="写下你对这个 Challenge 的回应，完成后会进入本局训练记录。"
+        className="mt-2 w-full resize-y rounded-md border border-app-line bg-transparent px-3 py-2.5 text-[13px] leading-relaxed text-app-text outline-none transition-colors placeholder:text-app-muted/60 focus:border-app-ai"
+      />
 
       {controls}
     </motion.div>
