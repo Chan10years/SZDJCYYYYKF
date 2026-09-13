@@ -22,17 +22,17 @@
       "round_freeze_end",
       "round_start_time",
       "game_time",
-      "m_iRoundTime",
+      "m_iRoundTime at round_freeze_end (nominal round duration)",
       "team_rounds_total/team_name",
-      "bomb_pickup/bomb_dropped/bomb_planted events",
-      "round_time_warning"
+      "bomb_pickup/bomb_dropped/bomb_planted events at or before target"
     ],
     "derivedFields": [
       "team name from the explicitly verified roster in the extraction spec",
       "side from demoparser2 team_num (3=CT, 2=T)",
       "alive player count from the ten per-player is_alive rows",
-      "target tick from round_start_time/game_time, inferred tick/s, and the round-time warning anchor",
-      "bomb carrier from the ordered bomb pickup/drop event fold through the target tick",
+      "target tick from round_start_time/game_time and inferred tick/s",
+      "bomb state from the ordered bomb pickup/drop/plant event fold through the target tick",
+      "post-plant elapsed time from bomb_planted event tick and target game_time/tickrate",
       "0..100 position from the configured map overview metadata"
     ],
     "humanQaRequired": true,
@@ -41,7 +41,8 @@
       "authoritative aggregate alive counters at the target snapshot",
       "round_in_progress at the target snapshot",
       "team organization metadata from the demo header",
-      "round_time_warning event at the selected round"
+      "round_time_warning at or before the target tick",
+      "round_clock_remaining at the target after bomb plant"
     ],
     "verificationStatus": "draft"
   },
@@ -228,18 +229,19 @@
     "parser": "demoparser2",
     "parserVersion": "0.42.0",
     "patchVersion": "14165",
-    "selectionEvidence": "de_overpass header + exact verified roster + Round 10 1:00 live-state anchor"
+    "selectionEvidence": "de_overpass header + exact verified roster + Round 10 55s elapsed live-state anchor"
   },
   "tick": 78872,
   "time": {
-    "display": "1:00",
+    "display": "post-plant · 26.1s since plant",
     "elapsedSeconds": 55.0,
     "gameTime": 3449.46875,
-    "remainingSeconds": 60.0,
+    "postPlantElapsedSeconds": 26.0625,
+    "remainingSeconds": null,
     "roundDurationSeconds": 115.0,
     "roundStartGameTime": 3394.46875,
     "roundStartTick": 75352,
-    "semantics": "round_clock_remaining",
+    "semantics": "post_plant_elapsed",
     "tickrate": 64.0,
     "warningGameTime": null,
     "warningTick": null

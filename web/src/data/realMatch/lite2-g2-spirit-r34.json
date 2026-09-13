@@ -22,25 +22,25 @@
       "round_freeze_end",
       "round_start_time",
       "game_time",
-      "m_iRoundTime",
+      "m_iRoundTime at round_freeze_end (nominal round duration)",
       "team_rounds_total/team_name",
-      "bomb_pickup/bomb_dropped/bomb_planted events",
-      "round_time_warning"
+      "bomb_pickup/bomb_dropped/bomb_planted events at or before target"
     ],
     "derivedFields": [
-      "team name from the explicitly verified G2/Team Spirit roster",
+      "team name from the explicitly verified roster in the extraction spec",
       "side from demoparser2 team_num (3=CT, 2=T)",
       "alive player count from the ten per-player is_alive rows",
-      "target tick from round_start_time/game_time, 64 tick/s, and the round-time warning anchor",
-      "bomb carrier from the ordered bomb pickup/drop event fold through the target tick",
-      "0..100 position from the Mirage overview metadata"
+      "target tick from round_start_time/game_time and inferred tick/s",
+      "bomb state from the ordered bomb pickup/drop/plant event fold through the target tick",
+      "0..100 position from the configured map overview metadata"
     ],
     "humanQaRequired": true,
     "roundNumberBasis": "human round = demoparser2 total_rounds_played + 1 at round_freeze_end",
     "unavailableFields": [
       "authoritative aggregate alive counters at the target snapshot",
       "round_in_progress at the target snapshot",
-      "team organization metadata from the demo header"
+      "team organization metadata from the demo header",
+      "round_time_warning at or before the target tick"
     ],
     "verificationStatus": "draft"
   },
@@ -53,7 +53,7 @@
       "radarHeight": 1024.0,
       "radarWidth": 1024.0,
       "scale": 5.0,
-      "source": "https://github.com/CSGO-Analysis/csgo-maps-overviews/blob/master/overviews/de_mirage.txt"
+      "source": "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_mirage.txt"
     }
   },
   "players": [
@@ -234,13 +234,14 @@
     "display": "0:40",
     "elapsedSeconds": 75.0,
     "gameTime": 6363.625,
+    "postPlantElapsedSeconds": null,
     "remainingSeconds": 40.0,
     "roundDurationSeconds": 115.0,
     "roundStartGameTime": 6288.625,
     "roundStartTick": 179265,
     "semantics": "round_clock_remaining",
     "tickrate": 64.0,
-    "warningGameTime": 6393.640625,
-    "warningTick": 185986
+    "warningGameTime": null,
+    "warningTick": null
   }
 }

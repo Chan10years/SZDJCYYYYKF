@@ -22,17 +22,16 @@
       "round_freeze_end",
       "round_start_time",
       "game_time",
-      "m_iRoundTime",
+      "m_iRoundTime at round_freeze_end (nominal round duration)",
       "team_rounds_total/team_name",
-      "bomb_pickup/bomb_dropped/bomb_planted events",
-      "round_time_warning"
+      "bomb_pickup/bomb_dropped/bomb_planted events at or before target"
     ],
     "derivedFields": [
       "team name from the explicitly verified roster in the extraction spec",
       "side from demoparser2 team_num (3=CT, 2=T)",
       "alive player count from the ten per-player is_alive rows",
-      "target tick from round_start_time/game_time, inferred tick/s, and the round-time warning anchor",
-      "bomb carrier from the ordered bomb pickup/drop event fold through the target tick",
+      "target tick from round_start_time/game_time and inferred tick/s",
+      "bomb state from the ordered bomb pickup/drop/plant event fold through the target tick",
       "0..100 position from the configured map overview metadata"
     ],
     "humanQaRequired": true,
@@ -40,7 +39,8 @@
     "unavailableFields": [
       "authoritative aggregate alive counters at the target snapshot",
       "round_in_progress at the target snapshot",
-      "team organization metadata from the demo header"
+      "team organization metadata from the demo header",
+      "round_time_warning at or before the target tick"
     ],
     "verificationStatus": "draft"
   },
@@ -234,13 +234,14 @@
     "display": "0:40",
     "elapsedSeconds": 75.0,
     "gameTime": 2256.9375,
+    "postPlantElapsedSeconds": null,
     "remainingSeconds": 40.0,
     "roundDurationSeconds": 115.0,
     "roundStartGameTime": 2181.9375,
     "roundStartTick": 80162,
     "semantics": "round_clock_remaining",
     "tickrate": 64.0,
-    "warningGameTime": 2286.953125,
-    "warningTick": 86883
+    "warningGameTime": null,
+    "warningTick": null
   }
 }

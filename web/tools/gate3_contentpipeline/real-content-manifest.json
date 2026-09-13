@@ -19,7 +19,7 @@
       },
       "target": {
         "humanRound": 10,
-        "remainingSeconds": 60
+        "elapsedSeconds": 55
       },
       "expectedScore": {
         "G2": 4,
@@ -41,7 +41,7 @@
         "donk": "Team Spirit",
         "tN1R": "Team Spirit"
       },
-      "selectionEvidence": "de_overpass header + exact verified roster + Round 10 1:00 live-state anchor"
+      "selectionEvidence": "de_overpass header + exact verified roster + Round 10 55s elapsed live-state anchor"
     },
     {
       "id": "g3-g2-spirit-dust2-r10",

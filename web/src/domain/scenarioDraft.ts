@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   NormalizedMatchStateSchema,
+  formatTimeForFact,
   parseNormalizedMatchState,
   type NormalizedMatchState,
 } from "./normalizedMatchState";
@@ -108,7 +109,7 @@ function buildQaChecks(state: NormalizedMatchState) {
     {
       id: "round-time" as const,
       label: "回合 / 时间",
-      evidence: `Round ${state.round.number} · Tick ${state.tick} · ${state.time.display} remaining · ${formatScore(state)}`,
+      evidence: `Round ${state.round.number} · Tick ${state.tick} · ${formatTimeForFact(state.time)} · ${formatScore(state)}`,
     },
     {
       id: "players" as const,
@@ -182,7 +183,7 @@ function buildPracticeFacts(state: NormalizedMatchState) {
     },
     {
       label: "截点",
-      detail: `Round ${state.round.number} · Tick ${state.tick} · ${state.time.display} remaining`,
+      detail: `Round ${state.round.number} · Tick ${state.tick} · ${formatTimeForFact(state.time)}`,
     },
     {
       label: "存活",

@@ -1,5 +1,6 @@
 import {
   NormalizedMatchStateSchema,
+  formatTimeForFact,
   type NormalizedMatchState,
 } from "./normalizedMatchState";
 import { z } from "zod";
@@ -116,7 +117,7 @@ function buildQaChecks(state: NormalizedMatchState): ContentQaCheck[] {
       label: "回合 / 时间截点",
       owner: "machine",
       status: "machine-extracted",
-      evidence: `Round ${state.round.number} · parser round ${state.round.parserRound} · Tick ${state.tick} · ${state.time.display} remaining · ${formatScore(state)}`,
+      evidence: `Round ${state.round.number} · parser round ${state.round.parserRound} · Tick ${state.tick} · ${formatTimeForFact(state.time)} · ${formatScore(state)}`,
     },
     {
       id: "players",

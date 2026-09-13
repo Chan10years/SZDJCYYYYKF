@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import overpassState from "@/data/realMatch/g3-g2-spirit-m1-overpass-r10.json";
+import dust2State from "@/data/realMatch/g3-g2-spirit-m2-dust2-r10.json";
 
 async function loadContract() {
   try {
@@ -61,5 +62,33 @@ describe("NormalizedMatchState JSON boundary", () => {
     expect(state.round.number).toBe(10);
     expect(state.players.filter((player) => player.alive)).toHaveLength(7);
     expect(state.bomb.status).toBe("planted");
+  });
+
+  it("marks a post-plant snapshot without presenting round clock as a fact", async () => {
+    const contract = await loadContract();
+    expect(contract).not.toBeNull();
+    if (!contract) return;
+
+    const state = contract.parseNormalizedMatchState(overpassState);
+
+    expect(state.time.semantics).toBe("post_plant_elapsed");
+    expect(state.time.remainingSeconds).toBeNull();
+    expect(state.time.postPlantElapsedSeconds).toBeCloseTo(26.0625, 4);
+    expect(state.time.display).toBe("post-plant · 26.1s since plant");
+    expect(state.time.warningTick).toBeNull();
+    expect(state.extraction.availableFields).not.toContain("round_time_warning");
+    expect(state.extraction.derivedFields.join(" ")).not.toMatch(/warning/i);
+  });
+
+  it("does not expose a warning event that occurs after the selected target", async () => {
+    const contract = await loadContract();
+    expect(contract).not.toBeNull();
+    if (!contract) return;
+
+    const state = contract.parseNormalizedMatchState(dust2State);
+
+    expect(state.tick).toBeLessThan(state.time.warningTick ?? Number.POSITIVE_INFINITY);
+    expect(state.time.warningTick).toBeNull();
+    expect(state.extraction.availableFields).not.toContain("round_time_warning");
   });
 });

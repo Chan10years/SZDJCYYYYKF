@@ -31,7 +31,7 @@ MIRAGE_OVERVIEW = {
     "scale": 5.0,
     "radarWidth": 1024.0,
     "radarHeight": 1024.0,
-    "source": "https://github.com/CSGO-Analysis/csgo-maps-overviews/blob/master/overviews/de_mirage.txt",
+    "source": "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_mirage.txt",
 }
 
 EXPECTED_PLAYER_TEAMS = {
@@ -116,7 +116,8 @@ class ExtractionSpec:
     team_by_name: dict[str, str]
     team_numbers: dict[str, int]
     target_round: int
-    target_remaining_seconds: float
+    target_remaining_seconds: float | None = None
+    target_elapsed_seconds: float | None = None
     expected_score: dict[str, int] | None = None
     expected_player_count: int = EXPECTED_PLAYER_COUNT
     expected_tickrate: float = EXPECTED_TICKRATE
@@ -164,6 +165,12 @@ class ExtractionSpec:
         expected_score = raw.get("expectedScore")
         if expected_score is not None and not isinstance(expected_score, Mapping):
             raise DemoCompatibilityError("expectedScore must be an object when provided")
+        target_remaining = target.get("remainingSeconds")
+        target_elapsed = target.get("elapsedSeconds")
+        if (target_remaining is None) == (target_elapsed is None):
+            raise DemoCompatibilityError(
+                "target requires exactly one of remainingSeconds or elapsedSeconds"
+            )
 
         return cls(
             map_name=required_string("mapName"),
@@ -173,7 +180,12 @@ class ExtractionSpec:
             team_by_name={str(name): str(team) for name, team in players.items()},
             team_numbers={str(team): int(number) for team, number in team_numbers.items()},
             target_round=int(target.get("humanRound")),
-            target_remaining_seconds=float(target.get("remainingSeconds")),
+            target_remaining_seconds=(
+                float(target_remaining) if target_remaining is not None else None
+            ),
+            target_elapsed_seconds=(
+                float(target_elapsed) if target_elapsed is not None else None
+            ),
             expected_score=(
                 {str(team): int(score) for team, score in expected_score.items()}
                 if isinstance(expected_score, Mapping)
@@ -328,15 +340,28 @@ def infer_tickrate(
 
 def select_target_tick(
     boundary: RoundBoundary,
-    remaining_seconds: float,
+    remaining_seconds: float | None,
     tickrate: float,
+    *,
+    elapsed_seconds: float | None = None,
 ) -> int:
-    remaining = _require_finite(remaining_seconds, "remaining_seconds")
     rate = _require_finite(tickrate, "tickrate")
     duration = _require_finite(boundary.round_duration_seconds, "round_duration_seconds")
-    if rate <= 0 or remaining < 0 or remaining > duration:
-        raise DemoCompatibilityError("target round-clock time is outside the round duration")
-    elapsed = duration - remaining
+    if rate <= 0 or (remaining_seconds is None) == (elapsed_seconds is None):
+        raise DemoCompatibilityError(
+            "target requires exactly one of remaining_seconds or elapsed_seconds"
+        )
+    if elapsed_seconds is None:
+        remaining = _require_finite(remaining_seconds, "remaining_seconds")
+        if remaining < 0 or remaining > duration:
+            raise DemoCompatibilityError(
+                "target round-clock time is outside the round duration"
+            )
+        elapsed = duration - remaining
+    else:
+        elapsed = _require_finite(elapsed_seconds, "elapsed_seconds")
+        if elapsed < 0:
+            raise DemoCompatibilityError("target elapsed time cannot be negative")
     return int(round(boundary.freeze_end_tick + elapsed * rate))
 
 
@@ -344,16 +369,16 @@ def validate_time_identity(
     boundary: RoundBoundary,
     target_tick: int,
     target_game_time: float,
-    remaining_seconds: float,
+    remaining_seconds: float | None,
     tickrate: float,
     *,
+    elapsed_seconds: float | None = None,
     warning_tick: int | None = None,
     warning_game_time: float | None = None,
     warning_remaining_seconds: float = 10.0,
     tolerance: float = 0.02,
 ) -> None:
     target_time = _require_finite(target_game_time, "target_game_time")
-    remaining = _require_finite(remaining_seconds, "remaining_seconds")
     rate = _require_finite(tickrate, "tickrate")
     expected_game_time = boundary.round_start_game_time + (
         target_tick - boundary.freeze_end_tick
@@ -363,16 +388,31 @@ def validate_time_identity(
             f"target tick/game-time mismatch: tick={target_tick}, "
             f"expected={expected_game_time}, actual={target_time}"
         )
-    actual_remaining = boundary.round_duration_seconds - (
-        target_time - boundary.round_start_game_time
-    )
-    if abs(actual_remaining - remaining) > tolerance:
+    actual_elapsed = target_time - boundary.round_start_game_time
+    if (remaining_seconds is None) == (elapsed_seconds is None):
         raise DemoCompatibilityError(
-            f"target round-clock mismatch: expected={remaining}, actual={actual_remaining}"
+            "target requires exactly one of remaining_seconds or elapsed_seconds"
         )
+    if elapsed_seconds is not None:
+        expected_elapsed = _require_finite(elapsed_seconds, "elapsed_seconds")
+        if abs(actual_elapsed - expected_elapsed) > tolerance:
+            raise DemoCompatibilityError(
+                f"target elapsed-time mismatch: expected={expected_elapsed}, actual={actual_elapsed}"
+            )
+    else:
+        remaining = _require_finite(remaining_seconds, "remaining_seconds")
+        actual_remaining = boundary.round_duration_seconds - actual_elapsed
+        if abs(actual_remaining - remaining) > tolerance:
+            raise DemoCompatibilityError(
+                f"target round-clock mismatch: expected={remaining}, actual={actual_remaining}"
+            )
     if (warning_tick is None) != (warning_game_time is None):
         raise DemoCompatibilityError("warning tick and warning game time must be provided together")
     if warning_tick is not None and warning_game_time is not None:
+        if warning_tick > target_tick:
+            raise DemoCompatibilityError(
+                "round-time warning occurs after the target and is not known at that moment"
+            )
         warning_time = _require_finite(warning_game_time, "warning_game_time")
         expected_warning_time = boundary.round_start_game_time + (
             warning_tick - boundary.freeze_end_tick
@@ -824,6 +864,154 @@ def format_round_clock(seconds: float) -> str:
     return f"{total_seconds // 60}:{total_seconds % 60:02d}"
 
 
+def build_time_snapshot(
+    boundary: RoundBoundary,
+    *,
+    target_tick: int,
+    target_game_time: float,
+    tickrate: float,
+    bomb_status: str,
+    bomb_plant_tick: int | None,
+    warning_tick: int | None = None,
+    warning_game_time: float | None = None,
+) -> dict[str, Any]:
+    """Describe the target time without treating post-plant time as round clock."""
+
+    target_time = _require_finite(target_game_time, "target_game_time")
+    rate = _require_finite(tickrate, "tickrate")
+    elapsed = target_time - boundary.round_start_game_time
+    if rate <= 0 or elapsed < -0.02:
+        raise DemoCompatibilityError("target game time is before the round boundary")
+    if (warning_tick is None) != (warning_game_time is None):
+        raise DemoCompatibilityError("warning tick and warning game time must be provided together")
+    if warning_tick is not None and warning_tick > target_tick:
+        raise DemoCompatibilityError(
+            "round-time warning occurs after the target and is not known at that moment"
+        )
+
+    payload: dict[str, Any] = {
+        "elapsedSeconds": elapsed,
+        "roundDurationSeconds": boundary.round_duration_seconds,
+        "roundStartTick": boundary.freeze_end_tick,
+        "roundStartGameTime": boundary.round_start_game_time,
+        "gameTime": target_time,
+        "tickrate": rate,
+        "warningTick": warning_tick,
+        "warningGameTime": warning_game_time,
+    }
+    if bomb_status == "planted":
+        if bomb_plant_tick is None or bomb_plant_tick > target_tick:
+            raise DemoCompatibilityError(
+                "a post-plant target requires a bomb_planted event at or before the target"
+            )
+        post_plant_elapsed = (target_tick - bomb_plant_tick) / rate
+        if post_plant_elapsed < 0:
+            raise DemoCompatibilityError("post-plant elapsed time cannot be negative")
+        payload.update(
+            {
+                "display": f"post-plant · {post_plant_elapsed:.1f}s since plant",
+                "semantics": "post_plant_elapsed",
+                "remainingSeconds": None,
+                "postPlantElapsedSeconds": post_plant_elapsed,
+            }
+        )
+        return payload
+
+    round_clock_remaining = boundary.round_duration_seconds - elapsed
+    if round_clock_remaining < -0.02:
+        raise DemoCompatibilityError(
+            "a non-post-plant target is outside the trusted round-clock interval"
+        )
+    payload.update(
+        {
+            "display": format_round_clock(round_clock_remaining),
+            "semantics": "round_clock_remaining",
+            "remainingSeconds": max(0.0, round_clock_remaining),
+            "postPlantElapsedSeconds": None,
+        }
+    )
+    return payload
+
+
+def build_extraction_provenance(
+    *,
+    warning_available: bool,
+    bomb_events_available: bool,
+    post_plant: bool,
+) -> dict[str, list[str]]:
+    """Keep field availability and derivation claims synchronized."""
+
+    available_fields = [
+        "header.map_name",
+        "player_steamid/player_name",
+        "team_num",
+        "X/Y/Z",
+        "health",
+        "is_alive",
+        "active_weapon_name",
+        "last_place_name",
+        "round_freeze_end",
+        "round_start_time",
+        "game_time",
+        "m_iRoundTime at round_freeze_end (nominal round duration)",
+        "team_rounds_total/team_name",
+    ]
+    if bomb_events_available:
+        available_fields.append("bomb_pickup/bomb_dropped/bomb_planted events at or before target")
+    if warning_available:
+        available_fields.append("round_time_warning at or before target")
+
+    unavailable_fields = [
+        "authoritative aggregate alive counters at the target snapshot",
+        "round_in_progress at the target snapshot",
+        "team organization metadata from the demo header",
+    ]
+    if not bomb_events_available:
+        unavailable_fields.append("bomb events at or before the target tick")
+    if not warning_available:
+        unavailable_fields.append("round_time_warning at or before the target tick")
+    if post_plant:
+        unavailable_fields.append("round_clock_remaining at the target after bomb plant")
+
+    target_tick_derivation = "target tick from round_start_time/game_time and inferred tick/s"
+    if warning_available:
+        target_tick_derivation += "; round-time warning is an independent anchor observed at or before target"
+    derived_fields = [
+        "team name from the explicitly verified roster in the extraction spec",
+        "side from demoparser2 team_num (3=CT, 2=T)",
+        "alive player count from the ten per-player is_alive rows",
+        target_tick_derivation,
+    ]
+    if bomb_events_available:
+        derived_fields.append(
+            "bomb state from the ordered bomb pickup/drop/plant event fold through the target tick"
+        )
+    if post_plant:
+        derived_fields.append(
+            "post-plant elapsed time from bomb_planted event tick and target game_time/tickrate"
+        )
+    derived_fields.append("0..100 position from the configured map overview metadata")
+    return {
+        "availableFields": available_fields,
+        "unavailableFields": unavailable_fields,
+        "derivedFields": derived_fields,
+    }
+
+
+def last_bomb_event_tick(
+    events: Sequence[Mapping[str, Any]],
+    target_tick: int,
+    event_name: str,
+) -> int | None:
+    ticks = [
+        int(_require_finite(_record_value(event, "tick"), "bomb event tick"))
+        for event in events
+        if _record_value(event, "event", "eventName") == event_name
+        and int(_require_finite(_record_value(event, "tick"), "bomb event tick")) <= target_tick
+    ]
+    return max(ticks) if ticks else None
+
+
 def extract_demo(
     demo_path: Path,
     output_path: Path,
@@ -855,6 +1043,7 @@ def extract_demo(
         boundary,
         spec.target_remaining_seconds,
         tickrate,
+        elapsed_seconds=spec.target_elapsed_seconds,
     )
 
     next_boundaries = [item for item in boundaries if item.freeze_end_tick > boundary.freeze_end_tick]
@@ -868,15 +1057,24 @@ def extract_demo(
         raise DemoCompatibilityError(
             f"target tick {target_tick} is after the selected round ended at tick {round_end_ticks[0]}"
         )
-    warning_events = [
+    round_warning_events = [
         event
         for event in _frame_records(parser.parse_event("round_time_warning"))
         if boundary.freeze_end_tick <= int(_require_finite(_record_value(event, "tick"), "warning tick")) < next_boundary_tick
     ]
-    if len(warning_events) > 1:
+    if len(round_warning_events) > 1:
         raise DemoCompatibilityError(
-            f"expected at most one Round {spec.target_round} time-warning anchor, got {len(warning_events)}"
+            f"expected at most one Round {spec.target_round} time-warning anchor, got {len(round_warning_events)}"
         )
+    if not round_warning_events and spec.require_warning_anchor:
+        raise DemoCompatibilityError(
+            f"expected one Round {spec.target_round} time-warning anchor, got 0"
+        )
+    warning_events = [
+        event
+        for event in round_warning_events
+        if int(_require_finite(_record_value(event, "tick"), "warning tick")) <= target_tick
+    ]
     warning_tick: int | None = None
     warning_game_time: float | None = None
     if warning_events:
@@ -889,11 +1087,6 @@ def extract_demo(
             _record_value(warning_per_tick[warning_tick], "game_time"),
             "warning game_time",
         )
-    elif spec.require_warning_anchor:
-        raise DemoCompatibilityError(
-            f"expected one Round {spec.target_round} time-warning anchor, got 0"
-        )
-
     wanted_fields = list(dict.fromkeys(PLAYER_FIELDS + GAME_RULE_FIELDS))
     target_records = _frame_records(parser.parse_ticks(wanted_fields, ticks=[target_tick]))
     players = normalize_player_rows(
@@ -916,6 +1109,7 @@ def extract_demo(
         target_game_time,
         spec.target_remaining_seconds,
         tickrate,
+        elapsed_seconds=spec.target_elapsed_seconds,
         warning_tick=warning_tick,
         warning_game_time=warning_game_time,
         warning_remaining_seconds=spec.warning_remaining_seconds,
@@ -948,6 +1142,7 @@ def extract_demo(
         for event in _event_records(parser, BOMB_EVENT_NAMES)
         if boundary.freeze_end_tick <= event["tick"] < next_boundary_tick
     ]
+    target_bomb_events = [event for event in bomb_events if event["tick"] <= target_tick]
     bomb = fold_bomb_events(bomb_events, target_tick)
     first_target_record = target_records[0]
     bomb["rawState"] = {
@@ -958,14 +1153,22 @@ def extract_demo(
         if not _is_missing(_record_value(first_target_record, "is_bomb_dropped"))
         else None,
     }
-
-    unavailable_fields = [
-        "authoritative aggregate alive counters at the target snapshot",
-        "round_in_progress at the target snapshot",
-        "team organization metadata from the demo header",
-    ]
-    if warning_tick is None:
-        unavailable_fields.append("round_time_warning event at the selected round")
+    bomb_plant_tick = last_bomb_event_tick(bomb_events, target_tick, "bomb_planted")
+    time_payload = build_time_snapshot(
+        boundary,
+        target_tick=target_tick,
+        target_game_time=target_game_time,
+        tickrate=tickrate,
+        bomb_status=str(bomb["status"]),
+        bomb_plant_tick=bomb_plant_tick,
+        warning_tick=warning_tick,
+        warning_game_time=warning_game_time,
+    )
+    provenance = build_extraction_provenance(
+        warning_available=warning_tick is not None,
+        bomb_events_available=bool(target_bomb_events),
+        post_plant=bomb["status"] == "planted",
+    )
 
     map_payload: dict[str, Any] = {
         "name": spec.map_name,
@@ -996,51 +1199,16 @@ def extract_demo(
             "score": target_score,
         },
         "tick": target_tick,
-        "time": {
-            "display": format_round_clock(spec.target_remaining_seconds),
-            "semantics": "round_clock_remaining",
-            "remainingSeconds": float(spec.target_remaining_seconds),
-            "elapsedSeconds": boundary.round_duration_seconds - float(spec.target_remaining_seconds),
-            "roundDurationSeconds": boundary.round_duration_seconds,
-            "roundStartTick": boundary.freeze_end_tick,
-            "roundStartGameTime": boundary.round_start_game_time,
-            "gameTime": target_game_time,
-            "tickrate": tickrate,
-            "warningTick": warning_tick,
-            "warningGameTime": warning_game_time,
-        },
+        "time": time_payload,
         "players": players,
         "bomb": bomb,
         "extraction": {
             "verificationStatus": "draft",
             "humanQaRequired": True,
             "roundNumberBasis": "human round = demoparser2 total_rounds_played + 1 at round_freeze_end",
-            "availableFields": [
-                "header.map_name",
-                "player_steamid/player_name",
-                "team_num",
-                "X/Y/Z",
-                "health",
-                "is_alive",
-                "active_weapon_name",
-                "last_place_name",
-                "round_freeze_end",
-                "round_start_time",
-                "game_time",
-                "m_iRoundTime",
-                "team_rounds_total/team_name",
-                "bomb_pickup/bomb_dropped/bomb_planted events",
-                "round_time_warning",
-            ],
-            "unavailableFields": unavailable_fields,
-            "derivedFields": [
-                "team name from the explicitly verified roster in the extraction spec",
-                "side from demoparser2 team_num (3=CT, 2=T)",
-                "alive player count from the ten per-player is_alive rows",
-                "target tick from round_start_time/game_time, inferred tick/s, and the round-time warning anchor",
-                "bomb carrier from the ordered bomb pickup/drop event fold through the target tick",
-                "0..100 position from the configured map overview metadata",
-            ],
+            "availableFields": provenance["availableFields"],
+            "unavailableFields": provenance["unavailableFields"],
+            "derivedFields": provenance["derivedFields"],
         },
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)

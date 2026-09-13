@@ -56,7 +56,7 @@ class Gate1ParserPureFunctionsTest(unittest.TestCase):
         with self.assertRaises(self.module.DemoCompatibilityError):
             self.module.select_round_boundary([], human_round=34)
 
-    def test_target_tick_matches_round_clock_and_warning_anchor(self):
+    def test_target_tick_matches_round_clock_without_future_warning_anchor(self):
         boundary = self.boundary()
 
         target_tick = self.module.select_target_tick(
@@ -72,8 +72,83 @@ class Gate1ParserPureFunctionsTest(unittest.TestCase):
             target_game_time=6363.625,
             remaining_seconds=40.0,
             tickrate=64.0,
-            warning_tick=185986,
-            warning_game_time=6393.640625,
+        )
+
+    def test_future_warning_anchor_is_rejected_as_not_known_at_target(self):
+        boundary = self.boundary()
+
+        with self.assertRaises(self.module.DemoCompatibilityError):
+            self.module.validate_time_identity(
+                boundary,
+                target_tick=184065,
+                target_game_time=6363.625,
+                remaining_seconds=40.0,
+                tickrate=64.0,
+                warning_tick=185986,
+                warning_game_time=6393.640625,
+            )
+
+    def test_elapsed_target_is_available_for_post_plant_selection(self):
+        spec = self.module.ExtractionSpec.from_mapping(
+            {
+                "mapName": "de_overpass",
+                "match": "G2 vs Team Spirit",
+                "mapAsset": None,
+                "overview": {
+                    "posX": -4831,
+                    "posY": 1781,
+                    "scale": 5.2,
+                    "radarWidth": 1024,
+                    "radarHeight": 1024,
+                    "source": "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_overpass.txt",
+                },
+                "target": {"humanRound": 10, "elapsedSeconds": 55},
+                "teamNumbers": {"G2": 3, "Team Spirit": 2},
+                "players": {"huNter-": "G2"},
+            }
+        )
+
+        self.assertIsNone(spec.target_remaining_seconds)
+        self.assertEqual(spec.target_elapsed_seconds, 55.0)
+
+    def test_post_plant_time_has_no_round_clock_fact(self):
+        payload = self.module.build_time_snapshot(
+            self.module.RoundBoundary(
+                parser_round=9,
+                human_round=10,
+                freeze_end_tick=75352,
+                round_start_game_time=3394.46875,
+                round_duration_seconds=115.0,
+                score={"G2": 4, "Team Spirit": 5},
+            ),
+            target_tick=78872,
+            target_game_time=3449.46875,
+            tickrate=64.0,
+            bomb_status="planted",
+            bomb_plant_tick=77204,
+        )
+
+        self.assertEqual(payload["semantics"], "post_plant_elapsed")
+        self.assertIsNone(payload["remainingSeconds"])
+        self.assertAlmostEqual(payload["postPlantElapsedSeconds"], 26.0625)
+        self.assertEqual(payload["display"], "post-plant · 26.1s since plant")
+
+    def test_extraction_provenance_does_not_claim_unavailable_inputs(self):
+        provenance = self.module.build_extraction_provenance(
+            warning_available=False,
+            bomb_events_available=True,
+            post_plant=True,
+        )
+
+        self.assertNotIn("round_time_warning", provenance["availableFields"])
+        self.assertFalse(
+            any("warning" in field for field in provenance["derivedFields"])
+        )
+        self.assertTrue(
+            any("round_clock_remaining" in field for field in provenance["unavailableFields"])
+        )
+        self.assertTrue(
+            any("post-plant elapsed" in field for field in provenance["derivedFields"])
         )
 
     def test_non_64_sample_is_rejected_when_tick_time_is_inconsistent(self):

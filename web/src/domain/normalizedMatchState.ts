@@ -87,30 +87,25 @@ const OverviewMetadataSchema = z
   })
   .strict();
 
-export const MapRenderFrameSchema = z
-  .object({
-    asset: z.string().trim().min(1),
-    imageWidth: FiniteNumberSchema.positive(),
-    imageHeight: FiniteNumberSchema.positive(),
-    coordinateFrame: z.string().trim().min(1),
-    affine: z
-      .object({
-        x: z
-          .object({
-            scale: FiniteNumberSchema,
-            offset: FiniteNumberSchema,
-          })
-          .strict(),
-        y: z
-          .object({
-            scale: FiniteNumberSchema,
-            offset: FiniteNumberSchema,
-          })
-          .strict(),
-      })
-      .strict(),
-  })
-  .strict();
+const RenderFrameBaseSchema = z.object({
+  asset: z.string().trim().min(1),
+  imageWidth: FiniteNumberSchema.positive(),
+  imageHeight: FiniteNumberSchema.positive(),
+  coordinateFrame: z.string().trim().min(1),
+  overviewSource: z.string().url(),
+});
+
+const RadarOverviewRenderFrameSchema = RenderFrameBaseSchema.extend({
+  projection: z.literal("cs2-radar-overview"),
+  radarWidth: FiniteNumberSchema.positive(),
+  radarHeight: FiniteNumberSchema.positive(),
+}).strict();
+
+/**
+ * New-map render frames must remain in the actual CS2 radar coordinate frame.
+ * The legacy Lite2 affine is kept outside this persisted state contract.
+ */
+export const MapRenderFrameSchema = RadarOverviewRenderFrameSchema;
 
 const MapSchema = z
   .object({
@@ -134,9 +129,10 @@ const RoundSchema = z
 const TimeSchema = z
   .object({
     display: z.string().trim().min(1),
-    semantics: z.literal("round_clock_remaining"),
-    remainingSeconds: FiniteNumberSchema.min(0),
+    semantics: z.enum(["round_clock_remaining", "post_plant_elapsed"]),
+    remainingSeconds: FiniteNumberSchema.min(0).nullable(),
     elapsedSeconds: FiniteNumberSchema.min(0),
+    postPlantElapsedSeconds: FiniteNumberSchema.min(0).nullable(),
     roundDurationSeconds: FiniteNumberSchema.positive(),
     roundStartTick: FiniteNumberSchema.int().min(0),
     roundStartGameTime: FiniteNumberSchema.min(0),
@@ -148,7 +144,50 @@ const TimeSchema = z
   })
   .strict()
   .superRefine((time, context) => {
-    if (time.remainingSeconds > time.roundDurationSeconds) {
+    if (
+      time.semantics === "round_clock_remaining" &&
+      time.remainingSeconds === null
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["remainingSeconds"],
+        message: "round-clock semantics require a remaining time value",
+      });
+    }
+    if (
+      time.semantics === "round_clock_remaining" &&
+      time.postPlantElapsedSeconds !== null
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["postPlantElapsedSeconds"],
+        message: "round-clock semantics cannot include post-plant elapsed time",
+      });
+    }
+    if (
+      time.semantics === "post_plant_elapsed" &&
+      time.remainingSeconds !== null
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["remainingSeconds"],
+        message: "post-plant semantics cannot present round-clock remaining time",
+      });
+    }
+    if (
+      time.semantics === "post_plant_elapsed" &&
+      time.postPlantElapsedSeconds === null
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["postPlantElapsedSeconds"],
+        message: "post-plant semantics require elapsed time since plant",
+      });
+    }
+    if (
+      time.remainingSeconds !== null &&
+      time.remainingSeconds > time.roundDurationSeconds
+    ) {
       context.addIssue({
         code: "custom",
         path: ["remainingSeconds"],
@@ -234,7 +273,16 @@ export const NormalizedMatchStateSchema = z
   })
   .strict()
   .superRefine((state, context) => {
-    if (!state || !Array.isArray(state.players) || !state.round || !state.round.score) {
+    if (
+      !state ||
+      !Array.isArray(state.players) ||
+      !state.round ||
+      !state.round.score ||
+      !state.map ||
+      !state.map.overview ||
+      !state.time ||
+      !state.bomb
+    ) {
       return;
     }
     const playerTeams = new Set(state.players.map((player) => player.team));
@@ -249,11 +297,57 @@ export const NormalizedMatchStateSchema = z
         message: "score teams must match the two teams in the player state",
       });
     }
+    if (
+      state.time.semantics === "post_plant_elapsed" &&
+      state.bomb.status !== "planted"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["time", "semantics"],
+        message: "post-plant time semantics require a planted bomb state",
+      });
+    }
+    if (
+      state.time.semantics === "round_clock_remaining" &&
+      state.bomb.status === "planted"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["time", "semantics"],
+        message: "a planted bomb cannot use round-clock remaining semantics",
+      });
+    }
+    if (state.map.render) {
+      if (state.map.render.overviewSource !== state.map.overview.source) {
+        context.addIssue({
+          code: "custom",
+          path: ["map", "render", "overviewSource"],
+          message: "render projection must reference the map overview source",
+        });
+      }
+      if (
+        state.map.render.projection === "cs2-radar-overview" &&
+        (state.map.render.radarWidth !== state.map.overview.radarWidth ||
+          state.map.render.radarHeight !== state.map.overview.radarHeight)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["map", "render"],
+          message: "radar render dimensions must match the map overview metadata",
+        });
+      }
+    }
   });
 
 export type NormalizedMatchState = z.infer<typeof NormalizedMatchStateSchema>;
 export type NormalizedPlayer = NormalizedMatchState["players"][number];
 export type OverviewMetadata = NormalizedMatchState["map"]["overview"];
+
+export function formatTimeForFact(time: NormalizedMatchState["time"]): string {
+  return time.semantics === "round_clock_remaining"
+    ? `${time.display} remaining`
+    : time.display;
+}
 
 export function parseNormalizedMatchState(input: unknown): NormalizedMatchState {
   return NormalizedMatchStateSchema.parse(input);

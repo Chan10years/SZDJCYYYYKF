@@ -13,7 +13,7 @@ The supplied package contains two Mirage demos for this match. Both were parsed 
 
 The target is therefore `p2`, not because of its filename ordering: its verified roster is G2 (`huNter-`, `HeavyGod`, `NertZ`, `MATYS`, `SunPayus`) versus Team Spirit (`sh1ro`, `zont1x`, `magixx`, `donk`, `tN1R`), and its internal boundaries include human Round 34.
 
-For Round 34, the parser counter is 33 and the freeze-end boundary is tick `179265`. Game-time samples establish 64 tick/s. With the Lite2 clock meaning “40 seconds remaining” and a 115-second round, the target is tick `184065`. The Round 34 `round_time_warning` event at tick `185986` is used as an independent 10-seconds-remaining anchor.
+For Round 34, the parser counter is 33 and the freeze-end boundary is tick `179265`. Game-time samples establish 64 tick/s. With the Lite2 clock meaning “40 seconds remaining” and a 115-second round, the target is tick `184065`. The Round 34 `round_time_warning` event at tick `185986` occurs after that target, so it is not exposed or used as a future fact for the snapshot.
 
 ## Run
 

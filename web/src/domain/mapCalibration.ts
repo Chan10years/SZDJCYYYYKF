@@ -8,12 +8,30 @@ export type ImagePosition = {
   y: number;
 };
 
-export type ImageCalibration = {
+type ImageCalibrationBase = {
+  imageWidth: number;
+  imageHeight: number;
+  coordinateFrame: string;
+  overviewSource?: string;
+};
+
+type AffineImageCalibration = ImageCalibrationBase & {
+  projection: "human-qa-affine";
   affine: {
     x: { scale: number; offset: number };
     y: { scale: number; offset: number };
   };
 };
+
+type RadarOverviewImageCalibration = ImageCalibrationBase & {
+  projection: "cs2-radar-overview";
+  radarWidth: number;
+  radarHeight: number;
+};
+
+export type ImageCalibration =
+  | AffineImageCalibration
+  | RadarOverviewImageCalibration;
 
 type CalibrationLandmark = {
   id: string;
@@ -51,6 +69,8 @@ export const LITE2_CURRENT_STATE_MAP_CALIBRATION = {
   imageWidth: 1448,
   imageHeight: 1086,
   coordinateFrame: "mirage-overview-native-raster",
+  projection: "human-qa-affine",
+  overviewSource: MIRAGE_RADAR_METADATA.source,
   overviewMetadata: MIRAGE_RADAR_METADATA,
   affine: {
     x: { scale: 15.8225806452, offset: -121.9193548387 },
@@ -112,13 +132,50 @@ function assertNormalizedCoordinate(value: number, field: string): void {
   }
 }
 
-/** Convert the product's 0..100 overview coordinate into clean-image pixels. */
+/** Convert an overview position into pixels using the declared raster frame. */
 export function normalizedToImagePositionWithCalibration(
-  position: Pick<TacticalMapPosition, "x" | "y">,
+  position: Pick<TacticalMapPosition, "x" | "y"> &
+    Partial<Pick<TacticalMapPosition, "radarX" | "radarY">>,
   calibration: ImageCalibration,
 ): ImagePosition {
   assertNormalizedCoordinate(position.x, "x");
   assertNormalizedCoordinate(position.y, "y");
+  if (
+    !Number.isFinite(calibration.imageWidth) ||
+    !Number.isFinite(calibration.imageHeight) ||
+    calibration.imageWidth <= 0 ||
+    calibration.imageHeight <= 0
+  ) {
+    throw new Error("Image calibration must use positive finite dimensions");
+  }
+  if (calibration.projection === "cs2-radar-overview") {
+    const radarX = position.radarX;
+    const radarY = position.radarY;
+    if (
+      typeof radarX !== "number" ||
+      typeof radarY !== "number" ||
+      !Number.isFinite(radarX) ||
+      !Number.isFinite(radarY) ||
+      !Number.isFinite(calibration.radarWidth) ||
+      !Number.isFinite(calibration.radarHeight) ||
+      calibration.radarWidth <= 0 ||
+      calibration.radarHeight <= 0
+    ) {
+      throw new Error(
+        "CS2 radar projection requires finite radar coordinates and dimensions",
+      );
+    }
+    return {
+      x: roundTo(
+        (radarX / calibration.radarWidth) * calibration.imageWidth,
+        2,
+      ),
+      y: roundTo(
+        (radarY / calibration.radarHeight) * calibration.imageHeight,
+        2,
+      ),
+    };
+  }
   return {
     x: roundTo(
       calibration.affine.x.offset + position.x * calibration.affine.x.scale,

@@ -21,19 +21,24 @@ python tools/gate3_contentpipeline/build_content_pack.py `
 ```
 
 Each entry configures only the verified source context: demo filename, map
-overview, round/time target, team roster, and optional expected score. The
-shared adapter recovers header identity, tick/time, player state, team side at
-the target tick, Bomb event fold, and coordinates. A short/ended round may not
-emit `round_time_warning`; the output records that absence as unavailable while
-still requiring round boundary/game-time consistency and rejecting target ticks
-at or after `round_end`.
+overview, round/time target, team roster, and optional expected score. Targets
+after a bomb plant use elapsed time from the round boundary; the output does
+not present the no-longer-authoritative round clock. The shared adapter
+recovers header identity, tick/time, player state, team side at the target tick,
+Bomb event fold, and coordinates. A short/ended round may not emit
+`round_time_warning`, or its warning may occur after the selected target; the
+output records that anchor as unavailable rather than using a future event
+while still requiring round boundary/game-time consistency and rejecting target
+ticks at or after `round_end`.
 
 Outputs are always `verificationStatus: "draft"` and
 `humanQaRequired: true`. `mapAsset: null` is intentional for the new Overpass
 and Dust2 snapshots: world coordinates are machine facts, not permission to
 render a map without a Human-QA-approved raster calibration. Call, Reason,
 trade-off, Tactical Preview, and Professional Reference remain authored human
-work.
+work. If a new map receives a raster later, its render frame must declare the
+same CS2 radar overview source and dimensions as the extracted map metadata;
+the Gate 1 Lite2 affine remains a legacy compatibility calibration only.
 
 The committed JSON files are derived facts only. The original `.dem` files
 remain external and are never committed.

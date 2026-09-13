@@ -38,7 +38,7 @@ real .dem
 Create `tools/gate1_demopipeline/test_parse_lite2_demo.py` with `unittest` coverage for:
 
 - human-round selection from parser round counters, including the Round 34 -> counter 33 mapping and missing-target failure;
-- 64 tick/s target-tick calculation and validation against round-clock remaining time plus a warning-event anchor;
+- 64 tick/s target-tick calculation and validation against round-clock remaining time; warning-event anchors are usable only when they occur at or before the target;
 - required player identity/position normalization, optional weapon handling, unique IDs, and exact 10-player validation;
 - bomb carrier folding from pickup/drop events, including unavailable state when no reliable event exists;
 - explicit unsupported-demo failures for wrong map, missing round boundaries, and incompatible roster;
@@ -66,7 +66,7 @@ Add `tools/gate1_demopipeline/parse_lite2_demo.py` with pure functions and a thi
 - `inspect_round_range` for reporting the actual human round range in each demo;
 - `extract_lite2_demo(demo_path, output_path)` using `demoparser2` friendly aliases and raw round-time data only where needed.
 
-The extractor must verify `de_mirage`, the explicit G2/Spirit roster, the Round 34 boundary, the game-time/tick-rate relationship, and the round-time warning anchor. It must derive alive counts from per-player `is_alive` rows because the observed aggregate game-rule fields are stale at the target snapshot. It must label team-name mapping, bomb carrier, and time derivation in extraction metadata.
+The extractor must verify `de_mirage`, the explicit G2/Spirit roster, the Round 34 boundary, and the game-time/tick-rate relationship. A configured round-time warning may be required to exist in the selected round, but a warning after the target is never exposed or used as a target-time fact. It must derive alive counts from per-player `is_alive` rows because the observed aggregate game-rule fields are stale at the target snapshot. It must label team-name mapping, bomb carrier, and time derivation in extraction metadata.
 
 Add `tools/gate1_demopipeline/requirements.txt` pinned to `demoparser2==0.42.0`, and `tools/gate1_demopipeline/README.md` documenting installation, the exact source asset, the p1/p2 round-range evidence, the invocation, metadata provenance, and the fact that this is an offline spike rather than a service.
 
