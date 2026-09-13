@@ -42,9 +42,12 @@ function toTrajectoryRows(
       aiCall: hasDisagreement ? round.aiAlternativeCall : null,
       finalCall: round.finalCall,
       professionalCall: round.professionalCall,
-      aiResponseSource: round.aiResponseSource,
+      aiResponseSource: round.aiChallenge?.source ?? round.aiResponseSource,
       status,
-      professionalLabel: scenario?.professional.pathLabel ?? "职业路径参考",
+      professionalLabel:
+        round.professionalReference?.pathLabel ??
+        scenario?.professional.pathLabel ??
+        "职业路径参考",
       referenceLabel: statusCopy.shortLabel,
     };
   });

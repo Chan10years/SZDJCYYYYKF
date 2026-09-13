@@ -11,6 +11,7 @@ import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import { getAiSourceLabel } from "@/domain/aiSource";
 import type { Scenario } from "@/domain/types";
 import { ConnectionTrajectory } from "@/components/report/ConnectionTrajectory";
+import { ReasoningChain } from "@/components/report/ReasoningChain";
 import { PageFrame } from "@/components/layout/PageFrame";
 import { Num } from "@/components/layout/MetadataStrip";
 
@@ -56,7 +57,7 @@ export function ConnectionReportScreen({
   scenarioPool = scenarios,
   requestRemoteReport = true,
 }: ConnectionReportScreenProps) {
-  const stats = calculateConnectionStats(rounds);
+  const stats = calculateConnectionStats(rounds, scenarioPool);
   const [observation, setObservation] = useState<Observation | null>(null);
 
   // 本次记录与统计一旦确定，立即异步获取行为观察；任何失败都回退到确定性文本。
@@ -162,6 +163,10 @@ export function ConnectionReportScreen({
           <div className="mt-4">
             <ConnectionTrajectory rounds={rounds} scenarioPool={scenarioPool} />
           </div>
+        </section>
+
+        <section className="mt-6 border-t border-app-line pt-5">
+          <ReasoningChain rounds={rounds} scenarioPool={scenarioPool} />
         </section>
 
         {/* 关键观察：两个核心数字（轨迹之后的第二视觉高潮） */}

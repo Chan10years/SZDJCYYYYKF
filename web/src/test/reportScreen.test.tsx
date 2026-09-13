@@ -70,6 +70,29 @@ const gate1PracticeRound = round({
   professionalCall: "A",
 });
 
+const richReasoningRound = round({
+  scenarioId: scenarios[0].id,
+  initialCall: "A",
+  aiStance: "challenge",
+  aiAlternativeCall: "B",
+  aiResponseSource: "live",
+  finalCall: "A",
+  optionalFreeformReasoning: "先确认空间，再比较风险。",
+  aiChallenge: {
+    stance: "challenge",
+    acknowledge: "你把「已知位置」作为主要依据。",
+    blindspot: "记录中的 Challenge 盲点。",
+    question: "记录中的 Challenge 反问。",
+    alternativeCall: "B",
+    source: "fallback",
+  },
+  userResponseToChallenge: "keep",
+  changeReason: "这个风险仍不足以改变我的判断。",
+  professionalReference: scenarios[0].professional,
+  postRoundReflection: "我需要更明确地说出关键条件。",
+  nextTrainingHypothesis: "下一次先检查关键条件。",
+});
+
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
@@ -88,6 +111,40 @@ afterEach(() => {
 });
 
 describe("ConnectionReportScreen — 两个核心数字", () => {
+  it("shows the saved initial reasoning, exact Challenge, response reason, and next check", () => {
+    render(
+      <ConnectionReportScreen
+        rounds={[richReasoningRound]}
+        requestRemoteReport={false}
+        onReset={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/先确认空间，再比较风险/)).toBeInTheDocument();
+    expect(screen.getByText(/记录中的 Challenge 反问/))
+      .toBeInTheDocument();
+    expect(screen.getByText(/这个风险仍不足以改变我的判断/))
+      .toBeInTheDocument();
+    expect(screen.getByText(/下一次先检查关键条件/))
+      .toBeInTheDocument();
+    expect(screen.getAllByText("来源：程序化 fallback").length)
+      .toBeGreaterThan(0);
+  });
+
+  it("labels pre-Gate-2 missing history instead of reconstructing it", () => {
+    render(
+      <ConnectionReportScreen
+        rounds={[round({ scenarioId: scenarios[0].id })]}
+        requestRemoteReport={false}
+        onReset={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/旧记录未保存 Challenge 正文/)).toBeInTheDocument();
+    expect(screen.getByText(/旧记录未保存 回应理由/)).toBeInTheDocument();
+    expect(screen.getByText(/旧记录未保存 next check/)).toBeInTheDocument();
+  });
+
   it("丰富状态：显示调整比例与职业趋同比例两个核心数字", async () => {
     render(
       <ConnectionReportScreen rounds={richRounds} onReset={vi.fn()} />,
@@ -100,9 +157,11 @@ describe("ConnectionReportScreen — 两个核心数字", () => {
     expect(screen.getAllByText("坚持").length).toBeGreaterThan(0);
     expect(screen.getAllByText("调整").length).toBeGreaterThan(0);
     expect(screen.getAllByText("一致").length).toBeGreaterThan(0);
-    expect(screen.getByText(/A 区已确认缺口/)).toBeInTheDocument();
-    expect(screen.getByText(/A 侧已有双人前点/)).toBeInTheDocument();
-    expect(screen.getByText(/已确认多名进攻方进入 B 区/)).toBeInTheDocument();
+    expect(screen.getAllByText(/A 区已确认缺口/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/A 侧已有双人前点/).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/已确认多名进攻方进入 B 区/).length,
+    ).toBeGreaterThan(0);
     expect(screen.getAllByText(/练习 B/).length).toBeGreaterThan(0);
     // AI 行为观察（来自程序候选）
     await waitFor(() => {
