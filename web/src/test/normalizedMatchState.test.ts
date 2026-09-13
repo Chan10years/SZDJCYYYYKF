@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import overpassState from "@/data/realMatch/g3-g2-spirit-m1-overpass-r10.json";
 
 async function loadContract() {
   try {
@@ -46,5 +47,19 @@ describe("NormalizedMatchState JSON boundary", () => {
 
     expect(() => contract.parseNormalizedMatchState({ ...fixture, players: [] })).toThrow();
     expect(() => contract.parseNormalizedMatchState({ ...fixture, tick: Number.NaN })).toThrow();
+  });
+
+  it("validates a real non-Mirage snapshot without inventing a raster asset", async () => {
+    const contract = await loadContract();
+    expect(contract).not.toBeNull();
+    if (!contract) return;
+
+    const state = contract.parseNormalizedMatchState(overpassState);
+
+    expect(state.map.name).toBe("de_overpass");
+    expect(state.map.asset).toBeNull();
+    expect(state.round.number).toBe(10);
+    expect(state.players.filter((player) => player.alive)).toHaveLength(7);
+    expect(state.bomb.status).toBe("planted");
   });
 });

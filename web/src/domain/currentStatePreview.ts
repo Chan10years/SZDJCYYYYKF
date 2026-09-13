@@ -3,20 +3,20 @@ import {
   type NormalizedMatchState,
 } from "./normalizedMatchState";
 import {
-  MIRAGE_RADAR_METADATA,
   worldToNormalizedPosition,
   type TacticalMapPosition,
 } from "./coordinateAdapter";
 import {
   LITE2_CURRENT_STATE_MAP_CALIBRATION,
-  normalizedToImagePosition,
+  normalizedToImagePositionWithCalibration,
+  type ImageCalibration,
   type ImagePosition,
 } from "./mapCalibration";
 
 export type CurrentStatePreviewPlayer = {
   id: string;
   name: string;
-  team: "G2" | "Team Spirit";
+  team: string;
   side: "CT" | "T";
   alive: boolean;
   health: number;
@@ -30,8 +30,11 @@ export type CurrentStatePreviewPlayer = {
 
 export type CurrentStatePreviewData = {
   kind: "current-match-state";
-  map: "de_mirage";
+  map: string;
   asset: string;
+  imageWidth: number;
+  imageHeight: number;
+  coordinateFrame: string;
   round: number;
   parserRound: number;
   tick: number;
@@ -42,26 +45,54 @@ export type CurrentStatePreviewData = {
   source: Pick<NormalizedMatchState["source"], "demoFile" | "parserVersion" | "demoSha256">;
 };
 
-function assertSupportedMirage(state: NormalizedMatchState): void {
-  if (state.map.name !== "de_mirage") {
-    throw new Error(`Current-state preview does not support map ${state.map.name}`);
+function resolveRenderCalibration(state: NormalizedMatchState): {
+  asset: string;
+  imageWidth: number;
+  imageHeight: number;
+  coordinateFrame: string;
+  calibration: ImageCalibration;
+} {
+  if (state.map.render) {
+    return {
+      asset: state.map.render.asset,
+      imageWidth: state.map.render.imageWidth,
+      imageHeight: state.map.render.imageHeight,
+      coordinateFrame: state.map.render.coordinateFrame,
+      calibration: state.map.render,
+    };
   }
-  const overview = state.map.overview;
-  for (const [key, expected] of Object.entries(MIRAGE_RADAR_METADATA)) {
-    if (key === "source") continue;
-    if (overview[key as keyof typeof overview] !== expected) {
-      throw new Error(`Current-state preview received unsupported Mirage metadata for ${key}`);
-    }
+
+  // Keep the Gate 1 contract alive without allowing an arbitrary Mirage
+  // image to inherit its calibration. New maps must carry an explicit,
+  // Human-QA-approved render frame in the normalized state.
+  if (
+    state.map.name === "de_mirage" &&
+    state.map.asset === "/maps/Lite2_Map.png"
+  ) {
+    return {
+      asset: LITE2_CURRENT_STATE_MAP_CALIBRATION.asset,
+      imageWidth: LITE2_CURRENT_STATE_MAP_CALIBRATION.imageWidth,
+      imageHeight: LITE2_CURRENT_STATE_MAP_CALIBRATION.imageHeight,
+      coordinateFrame: LITE2_CURRENT_STATE_MAP_CALIBRATION.coordinateFrame,
+      calibration: LITE2_CURRENT_STATE_MAP_CALIBRATION,
+    };
   }
+
+  throw new Error(
+    `Current-state preview requires a Human-QA-approved raster calibration for ${state.map.name}`,
+  );
 }
 
 export function buildCurrentStatePreview(input: unknown): CurrentStatePreviewData {
   const state = parseNormalizedMatchState(input);
-  assertSupportedMirage(state);
+  const render = resolveRenderCalibration(state);
   return {
     kind: "current-match-state",
-    map: "de_mirage",
-    asset: LITE2_CURRENT_STATE_MAP_CALIBRATION.asset,
+    map: state.map.name,
+    asset: render.asset,
+    imageWidth: render.imageWidth,
+    imageHeight: render.imageHeight,
+    coordinateFrame: render.coordinateFrame,
     round: state.round.number,
     parserRound: state.round.parserRound,
     tick: state.tick,
@@ -81,7 +112,10 @@ export function buildCurrentStatePreview(input: unknown): CurrentStatePreviewDat
         worldPosition: player.worldPosition,
         mapPosition: { radarX: position.radarX, radarY: position.radarY },
         normalizedPosition: { x: position.x, y: position.y },
-        imagePosition: normalizedToImagePosition(position),
+        imagePosition: normalizedToImagePositionWithCalibration(
+          position,
+          render.calibration,
+        ),
       };
     }),
     bomb: {

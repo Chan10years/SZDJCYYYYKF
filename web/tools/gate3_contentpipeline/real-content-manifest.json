@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "description": "Real G2 vs Team Spirit map-diverse machine snapshots. Raw demos stay outside the repository; every output remains draft-only until Human QA.",
+  "entries": [
+    {
+      "id": "g3-g2-spirit-overpass-r10",
+      "demoFile": "g2-vs-spirit-m1-overpass.dem",
+      "outputFile": "g3-g2-spirit-m1-overpass-r10.json",
+      "mapName": "de_overpass",
+      "mapAsset": null,
+      "match": "G2 vs Team Spirit",
+      "overview": {
+        "posX": -4831,
+        "posY": 1781,
+        "scale": 5.2,
+        "radarWidth": 1024,
+        "radarHeight": 1024,
+        "source": "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_overpass.txt"
+      },
+      "target": {
+        "humanRound": 10,
+        "remainingSeconds": 60
+      },
+      "expectedScore": {
+        "G2": 4,
+        "Team Spirit": 5
+      },
+      "teamNumbers": {
+        "G2": 3,
+        "Team Spirit": 2
+      },
+      "players": {
+        "huNter-": "G2",
+        "HeavyGod": "G2",
+        "NertZ": "G2",
+        "MATYS": "G2",
+        "SunPayus": "G2",
+        "sh1ro": "Team Spirit",
+        "zont1x": "Team Spirit",
+        "magixx": "Team Spirit",
+        "donk": "Team Spirit",
+        "tN1R": "Team Spirit"
+      },
+      "selectionEvidence": "de_overpass header + exact verified roster + Round 10 1:00 live-state anchor"
+    },
+    {
+      "id": "g3-g2-spirit-dust2-r10",
+      "demoFile": "g2-vs-spirit-m2-dust2.dem",
+      "outputFile": "g3-g2-spirit-m2-dust2-r10.json",
+      "mapName": "de_dust2",
+      "mapAsset": null,
+      "match": "G2 vs Team Spirit",
+      "overview": {
+        "posX": -2476,
+        "posY": 3239,
+        "scale": 4.4,
+        "radarWidth": 1024,
+        "radarHeight": 1024,
+        "source": "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_dust2.txt"
+      },
+      "target": {
+        "humanRound": 10,
+        "remainingSeconds": 40
+      },
+      "expectedScore": {
+        "G2": 4,
+        "Team Spirit": 5
+      },
+      "teamNumbers": {
+        "G2": 3,
+        "Team Spirit": 2
+      },
+      "players": {
+        "huNter-": "G2",
+        "HeavyGod": "G2",
+        "NertZ": "G2",
+        "MATYS": "G2",
+        "SunPayus": "G2",
+        "sh1ro": "Team Spirit",
+        "zont1x": "Team Spirit",
+        "magixx": "Team Spirit",
+        "donk": "Team Spirit",
+        "tN1R": "Team Spirit"
+      },
+      "selectionEvidence": "de_dust2 header + exact verified roster + Round 10 score/time anchors"
+    }
+  ]
+}

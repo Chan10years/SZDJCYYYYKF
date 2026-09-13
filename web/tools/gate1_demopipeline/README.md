@@ -1,6 +1,6 @@
 # Gate 1 offline demo spike
 
-This directory contains the disposable/offline producer for the Gate 1 real-match vertical slice. It writes one versioned `NormalizedMatchState` JSON artifact; it does not run an HTTP service, persist a database, or provide a replay engine.
+This directory contains the disposable/offline producer for the Gate 1 real-match vertical slice. Its parser module now also exposes the shared configurable core used by Gate 3; `extract_lite2_demo` remains a compatibility adapter. It writes versioned `NormalizedMatchState` JSON artifacts; it does not run an HTTP service, persist a database, or provide a replay engine.
 
 ## Verified source selection
 

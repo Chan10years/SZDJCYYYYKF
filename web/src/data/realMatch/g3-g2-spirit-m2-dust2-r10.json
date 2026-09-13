@@ -1,0 +1,246 @@
+{
+  "bomb": {
+    "carrierId": "76561198081484775",
+    "carrierName": "sh1ro",
+    "derivedFrom": "event fold through tick 81181: bomb_pickup/bomb_dropped",
+    "rawState": {
+      "isDropped": false,
+      "isPlanted": false
+    },
+    "status": "carried"
+  },
+  "extraction": {
+    "availableFields": [
+      "header.map_name",
+      "player_steamid/player_name",
+      "team_num",
+      "X/Y/Z",
+      "health",
+      "is_alive",
+      "active_weapon_name",
+      "last_place_name",
+      "round_freeze_end",
+      "round_start_time",
+      "game_time",
+      "m_iRoundTime",
+      "team_rounds_total/team_name",
+      "bomb_pickup/bomb_dropped/bomb_planted events",
+      "round_time_warning"
+    ],
+    "derivedFields": [
+      "team name from the explicitly verified roster in the extraction spec",
+      "side from demoparser2 team_num (3=CT, 2=T)",
+      "alive player count from the ten per-player is_alive rows",
+      "target tick from round_start_time/game_time, inferred tick/s, and the round-time warning anchor",
+      "bomb carrier from the ordered bomb pickup/drop event fold through the target tick",
+      "0..100 position from the configured map overview metadata"
+    ],
+    "humanQaRequired": true,
+    "roundNumberBasis": "human round = demoparser2 total_rounds_played + 1 at round_freeze_end",
+    "unavailableFields": [
+      "authoritative aggregate alive counters at the target snapshot",
+      "round_in_progress at the target snapshot",
+      "team organization metadata from the demo header"
+    ],
+    "verificationStatus": "draft"
+  },
+  "map": {
+    "asset": null,
+    "name": "de_dust2",
+    "overview": {
+      "posX": -2476,
+      "posY": 3239,
+      "radarHeight": 1024,
+      "radarWidth": 1024,
+      "scale": 4.4,
+      "source": "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_dust2.txt"
+    }
+  },
+  "players": [
+    {
+      "alive": true,
+      "health": 78,
+      "id": "76561198012872053",
+      "name": "huNter-",
+      "place": "ExtendedA",
+      "side": "CT",
+      "team": "G2",
+      "weapon": "M4A1-S",
+      "worldPosition": {
+        "x": 523.5628662109375,
+        "y": 2068.216796875,
+        "z": 127.21746826171875
+      }
+    },
+    {
+      "alive": true,
+      "health": 27,
+      "id": "76561198053126645",
+      "name": "NertZ",
+      "place": "BombsiteB",
+      "side": "CT",
+      "team": "G2",
+      "weapon": "M4A4",
+      "worldPosition": {
+        "x": -1666.150390625,
+        "y": 1773.9951171875,
+        "z": 1.0687665939331055
+      }
+    },
+    {
+      "alive": true,
+      "health": 100,
+      "id": "76561198068002993",
+      "name": "HeavyGod",
+      "place": "BombsiteB",
+      "side": "CT",
+      "team": "G2",
+      "weapon": "M4A1-S",
+      "worldPosition": {
+        "x": -1579.8416748046875,
+        "y": 2755.53564453125,
+        "z": 65.03125
+      }
+    },
+    {
+      "alive": true,
+      "health": 100,
+      "id": "76561198309839541",
+      "name": "SunPayus",
+      "place": "LongA",
+      "side": "CT",
+      "team": "G2",
+      "weapon": "AWP",
+      "worldPosition": {
+        "x": 1696.6456298828125,
+        "y": 1815.2142333984375,
+        "z": 0.6173782348632812
+      }
+    },
+    {
+      "alive": true,
+      "health": 100,
+      "id": "76561199046478501",
+      "name": "MATYS",
+      "place": "ExtendedA",
+      "side": "CT",
+      "team": "G2",
+      "weapon": "High Explosive Grenade",
+      "worldPosition": {
+        "x": 457.1364440917969,
+        "y": 2133.6826171875,
+        "z": 95.9359359741211
+      }
+    },
+    {
+      "alive": true,
+      "health": 100,
+      "id": "76561198081484775",
+      "name": "sh1ro",
+      "place": "UpperTunnel",
+      "side": "T",
+      "team": "Team Spirit",
+      "weapon": "C4 Explosive",
+      "worldPosition": {
+        "x": -1659.20458984375,
+        "y": 855.5660400390625,
+        "z": 31.46179962158203
+      }
+    },
+    {
+      "alive": false,
+      "health": 0,
+      "id": "76561198386265483",
+      "name": "donk",
+      "place": "ShortStairs",
+      "side": "T",
+      "team": "Team Spirit",
+      "weapon": null,
+      "worldPosition": {
+        "x": 286.70294189453125,
+        "y": 1494.1370849609375,
+        "z": 1.3024811744689941
+      }
+    },
+    {
+      "alive": true,
+      "health": 100,
+      "id": "76561198872013168",
+      "name": "tN1R",
+      "place": "OutsideTunnel",
+      "side": "T",
+      "team": "Team Spirit",
+      "weapon": "Karambit",
+      "worldPosition": {
+        "x": -1712.3720703125,
+        "y": 499.64251708984375,
+        "z": 34.03125
+      }
+    },
+    {
+      "alive": true,
+      "health": 100,
+      "id": "76561198995880877",
+      "name": "zont1x",
+      "place": "OutsideTunnel",
+      "side": "T",
+      "team": "Team Spirit",
+      "weapon": "Karambit",
+      "worldPosition": {
+        "x": -1714.4342041015625,
+        "y": 559.5933837890625,
+        "z": 32.539390563964844
+      }
+    },
+    {
+      "alive": false,
+      "health": 0,
+      "id": "76561199063238565",
+      "name": "magixx",
+      "place": "Middle",
+      "side": "T",
+      "team": "Team Spirit",
+      "weapon": null,
+      "worldPosition": {
+        "x": -275.0531005859375,
+        "y": 1345.3343505859375,
+        "z": -122.7713623046875
+      }
+    }
+  ],
+  "round": {
+    "boundaryTick": 80162,
+    "number": 10,
+    "parserRound": 9,
+    "score": {
+      "G2": 4,
+      "Team Spirit": 5
+    }
+  },
+  "schemaVersion": 1,
+  "source": {
+    "demoFile": "g2-vs-spirit-m2-dust2.dem",
+    "demoSha256": "6836459737594CB0CB70A5BF1859C429E6328DDF2A958BBEA61131A40FB313C9",
+    "demoVersion": "valve_demo_2",
+    "kind": "offline-demo",
+    "match": "G2 vs Team Spirit",
+    "parser": "demoparser2",
+    "parserVersion": "0.42.0",
+    "patchVersion": "14165",
+    "selectionEvidence": "de_dust2 header + exact verified roster + Round 10 score/time anchors"
+  },
+  "tick": 84962,
+  "time": {
+    "display": "0:40",
+    "elapsedSeconds": 75.0,
+    "gameTime": 2256.9375,
+    "remainingSeconds": 40.0,
+    "roundDurationSeconds": 115.0,
+    "roundStartGameTime": 2181.9375,
+    "roundStartTick": 80162,
+    "semantics": "round_clock_remaining",
+    "tickrate": 64.0,
+    "warningGameTime": 2286.953125,
+    "warningTick": 86883
+  }
+}

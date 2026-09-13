@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { realScenarios } from "@/data/scenarios.real";
+import overpassState from "@/data/realMatch/g3-g2-spirit-m1-overpass-r10.json";
 
 async function loadAdapter() {
   try {
@@ -55,5 +56,44 @@ describe("current-state Tactical Preview adapter", () => {
     adapter.buildCurrentStatePreview(fixture);
 
     expect(JSON.stringify(scenario.previewByCall)).toBe(authoredPreviewBefore);
+  });
+
+  it("refuses spatial rendering until a map raster calibration is human-approved", async () => {
+    const adapter = await loadAdapter();
+    expect(adapter).not.toBeNull();
+    if (!adapter) return;
+
+    expect(() => adapter.buildCurrentStatePreview(overpassState)).toThrow(
+      /Human-QA-approved raster calibration/,
+    );
+  });
+
+  it("uses an explicit non-Mirage render frame when one is supplied", async () => {
+    const adapter = await loadAdapter();
+    expect(adapter).not.toBeNull();
+    if (!adapter) return;
+
+    const preview = adapter.buildCurrentStatePreview({
+      ...overpassState,
+      map: {
+        ...overpassState.map,
+        render: {
+          asset: "/maps/Overpass_CurrentStateBase.png",
+          imageWidth: 1200,
+          imageHeight: 900,
+          coordinateFrame: "overpass-human-qa-raster",
+          affine: {
+            x: { scale: 12, offset: 0 },
+            y: { scale: 9, offset: 0 },
+          },
+        },
+      },
+    });
+
+    expect(preview.map).toBe("de_overpass");
+    expect(preview.asset).toBe("/maps/Overpass_CurrentStateBase.png");
+    expect(preview.imageWidth).toBe(1200);
+    expect(preview.imageHeight).toBe(900);
+    expect(preview.coordinateFrame).toBe("overpass-human-qa-raster");
   });
 });

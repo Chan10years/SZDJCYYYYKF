@@ -65,11 +65,14 @@ export const ScenarioDraftSchema = z
 
 export type ScenarioDraft = z.infer<typeof ScenarioDraftSchema>;
 
-function assertLite2DraftInputs(
+function assertDraftInputs(
   state: NormalizedMatchState,
   authoredScenario: Scenario,
 ): void {
-  const expectedMap = `de_${authoredScenario.source.map.toLowerCase()}`;
+  const authoredMap = authoredScenario.source.map.toLowerCase();
+  const expectedMap = authoredMap.startsWith("de_")
+    ? authoredMap
+    : `de_${authoredMap}`;
   if (
     state.map.name !== expectedMap ||
     state.round.number !== authoredScenario.source.round ||
@@ -81,6 +84,12 @@ function assertLite2DraftInputs(
   }
 }
 
+function formatScore(state: NormalizedMatchState): string {
+  return Object.entries(state.round.score)
+    .map(([team, score]) => `${team} ${score}`)
+    .join(" : ");
+}
+
 function buildQaChecks(state: NormalizedMatchState) {
   const aliveBySide = {
     CT: state.players.filter((player) => player.side === "CT" && player.alive)
@@ -88,6 +97,8 @@ function buildQaChecks(state: NormalizedMatchState) {
     T: state.players.filter((player) => player.side === "T" && player.alive)
       .length,
   };
+  const hasLegacyLite2Calibration =
+    state.map.name === "de_mirage" && state.map.asset === "/maps/Lite2_Map.png";
   return [
     {
       id: "source" as const,
@@ -97,7 +108,7 @@ function buildQaChecks(state: NormalizedMatchState) {
     {
       id: "round-time" as const,
       label: "回合 / 时间",
-      evidence: `Round ${state.round.number} · Tick ${state.tick} · ${state.time.display} remaining · ${state.round.score.G2}:${state.round.score["Team Spirit"]}`,
+      evidence: `Round ${state.round.number} · Tick ${state.tick} · ${state.time.display} remaining · ${formatScore(state)}`,
     },
     {
       id: "players" as const,
@@ -115,7 +126,11 @@ function buildQaChecks(state: NormalizedMatchState) {
     {
       id: "coordinates" as const,
       label: "坐标 / 底图",
-      evidence: `Mirage overview ${state.map.overview.posX}, ${state.map.overview.posY}, scale ${state.map.overview.scale} → ${LITE2_CURRENT_STATE_MAP_CALIBRATION.imageWidth}×${LITE2_CURRENT_STATE_MAP_CALIBRATION.imageHeight} native raster`,
+      evidence: state.map.render
+        ? `${state.map.name} overview ${state.map.overview.posX}, ${state.map.overview.posY}, scale ${state.map.overview.scale} → ${state.map.render.imageWidth}×${state.map.render.imageHeight} native raster`
+        : hasLegacyLite2Calibration
+          ? `${state.map.name} overview ${state.map.overview.posX}, ${state.map.overview.posY}, scale ${state.map.overview.scale} → ${LITE2_CURRENT_STATE_MAP_CALIBRATION.imageWidth}×${LITE2_CURRENT_STATE_MAP_CALIBRATION.imageHeight} native raster`
+          : `${state.map.name} overview ${state.map.overview.posX}, ${state.map.overview.posY}, scale ${state.map.overview.scale} · raster calibration pending Human QA`,
     },
   ];
 }
@@ -126,7 +141,7 @@ export function buildScenarioDraft(
 ): ScenarioDraft {
   const state = parseNormalizedMatchState(input);
   const authoredScenario = ScenarioSchema.parse(authoredScenarioInput);
-  assertLite2DraftInputs(state, authoredScenario);
+  assertDraftInputs(state, authoredScenario);
 
   return ScenarioDraftSchema.parse({
     schemaVersion: 1,
@@ -163,7 +178,7 @@ function buildPracticeFacts(state: NormalizedMatchState) {
   return [
     {
       label: "比分",
-      detail: `G2 ${state.round.score.G2} : ${state.round.score["Team Spirit"]} Team Spirit`,
+      detail: formatScore(state),
     },
     {
       label: "截点",
@@ -211,7 +226,11 @@ export function approveScenarioDraftForPractice(
       round: state.round.number,
       sourceLabel: `${state.source.demoFile} · Human QA draft promotion`,
     },
-    mapBase: LITE2_CURRENT_STATE_MAP_CALIBRATION.asset,
+    mapBase:
+      state.map.render?.asset ??
+      (state.map.name === "de_mirage" && state.map.asset === "/maps/Lite2_Map.png"
+        ? LITE2_CURRENT_STATE_MAP_CALIBRATION.asset
+        : authoredScenario.mapBase),
     situation: {
       ...authoredScenario.situation,
       phase: `Round ${state.round.number} · parser round ${state.round.parserRound}`,

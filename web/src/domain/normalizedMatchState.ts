@@ -10,11 +10,13 @@ const WorldPositionSchema = z
   })
   .strict();
 
+const TeamNameSchema = z.string().trim().min(1);
+
 const PlayerSchema = z
   .object({
     id: z.string().trim().min(1),
     name: z.string().trim().min(1),
-    team: z.enum(["G2", "Team Spirit"]),
+    team: TeamNameSchema,
     side: z.enum(["CT", "T"]),
     alive: z.boolean(),
     health: FiniteNumberSchema.int().min(0).max(100),
@@ -22,17 +24,7 @@ const PlayerSchema = z
     worldPosition: WorldPositionSchema,
     place: z.string().trim().min(1).nullable(),
   })
-  .strict()
-  .superRefine((player, context) => {
-    const expectedSide = player.team === "G2" ? "CT" : "T";
-    if (player.side !== expectedSide) {
-      context.addIssue({
-        code: "custom",
-        path: ["side"],
-        message: `team ${player.team} must be on side ${expectedSide}`,
-      });
-    }
-  });
+  .strict();
 
 const PlayersSchema = z
   .array(PlayerSchema)
@@ -54,14 +46,35 @@ const PlayersSchema = z
         });
       }
     }
+    const teams = new Set(players.map((player) => player.team));
+    if (teams.size !== 2) {
+      context.addIssue({
+        code: "custom",
+        message: "a normalized match state must contain exactly two teams",
+      });
+    }
+    for (const team of teams) {
+      const count = players.filter((player) => player.team === team).length;
+      if (count !== 5) {
+        context.addIssue({
+          code: "custom",
+          message: `expected five players for team ${team}, got ${count}`,
+        });
+      }
+    }
   });
 
 const ScoreSchema = z
-  .object({
-    G2: FiniteNumberSchema.int().min(0),
-    "Team Spirit": FiniteNumberSchema.int().min(0),
-  })
-  .strict();
+  .record(z.string(), FiniteNumberSchema.int().min(0))
+  .superRefine((score, context) => {
+    const teams = Object.keys(score).filter((team) => team.trim().length > 0);
+    if (teams.length !== 2) {
+      context.addIssue({
+        code: "custom",
+        message: "a normalized match state score must contain exactly two teams",
+      });
+    }
+  });
 
 const OverviewMetadataSchema = z
   .object({
@@ -74,11 +87,38 @@ const OverviewMetadataSchema = z
   })
   .strict();
 
+export const MapRenderFrameSchema = z
+  .object({
+    asset: z.string().trim().min(1),
+    imageWidth: FiniteNumberSchema.positive(),
+    imageHeight: FiniteNumberSchema.positive(),
+    coordinateFrame: z.string().trim().min(1),
+    affine: z
+      .object({
+        x: z
+          .object({
+            scale: FiniteNumberSchema,
+            offset: FiniteNumberSchema,
+          })
+          .strict(),
+        y: z
+          .object({
+            scale: FiniteNumberSchema,
+            offset: FiniteNumberSchema,
+          })
+          .strict(),
+      })
+      .strict(),
+  })
+  .strict();
+
 const MapSchema = z
   .object({
     name: z.string().trim().min(1),
-    asset: z.string().trim().min(1),
+    /** Null means machine facts exist but no Human-QA-approved raster is attached. */
+    asset: z.string().trim().min(1).nullable(),
     overview: OverviewMetadataSchema,
+    render: MapRenderFrameSchema.optional(),
   })
   .strict();
 
@@ -102,8 +142,9 @@ const TimeSchema = z
     roundStartGameTime: FiniteNumberSchema.min(0),
     gameTime: FiniteNumberSchema.min(0),
     tickrate: FiniteNumberSchema.positive(),
-    warningTick: FiniteNumberSchema.int().min(0),
-    warningGameTime: FiniteNumberSchema.min(0),
+    /** Some valid demos do not emit a round_time_warning event for short rounds. */
+    warningTick: FiniteNumberSchema.int().min(0).nullable(),
+    warningGameTime: FiniteNumberSchema.min(0).nullable(),
   })
   .strict()
   .superRefine((time, context) => {
@@ -112,6 +153,13 @@ const TimeSchema = z
         code: "custom",
         path: ["remainingSeconds"],
         message: "remaining time cannot exceed round duration",
+      });
+    }
+    if ((time.warningTick === null) !== (time.warningGameTime === null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["warningTick"],
+        message: "warning tick and warning game time must be provided together",
       });
     }
   });
@@ -152,8 +200,8 @@ const SourceSchema = z
     kind: z.literal("offline-demo"),
     demoFile: z.string().trim().min(1),
     demoSha256: z.string().regex(/^[A-F0-9]{64}$/),
-    match: z.literal("G2 vs Team Spirit"),
-    parser: z.literal("demoparser2"),
+    match: z.string().trim().min(1),
+    parser: z.string().trim().min(1),
     parserVersion: z.string().trim().min(1),
     demoVersion: z.string().trim().min(1),
     patchVersion: z.string().trim().min(1),
@@ -184,7 +232,24 @@ export const NormalizedMatchStateSchema = z
     bomb: BombSchema,
     extraction: ExtractionSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((state, context) => {
+    if (!state || !Array.isArray(state.players) || !state.round || !state.round.score) {
+      return;
+    }
+    const playerTeams = new Set(state.players.map((player) => player.team));
+    const scoreTeams = new Set(Object.keys(state.round.score));
+    if (
+      playerTeams.size !== scoreTeams.size ||
+      [...playerTeams].some((team) => !scoreTeams.has(team))
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["round", "score"],
+        message: "score teams must match the two teams in the player state",
+      });
+    }
+  });
 
 export type NormalizedMatchState = z.infer<typeof NormalizedMatchStateSchema>;
 export type NormalizedPlayer = NormalizedMatchState["players"][number];

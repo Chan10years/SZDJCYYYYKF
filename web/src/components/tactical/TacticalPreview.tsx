@@ -63,7 +63,7 @@ export function TacticalPreview({
       ? LITE2_LETTERBOX_TRANSFORM
       : undefined;
   const mapViewBox = isCurrentState
-    ? `0 0 ${LITE2_CURRENT_STATE_MAP_CALIBRATION.imageWidth} ${LITE2_CURRENT_STATE_MAP_CALIBRATION.imageHeight}`
+    ? `0 0 ${currentState.imageWidth} ${currentState.imageHeight}`
     : "0 0 100 100";
   const movementPhases = isCurrentState ? undefined : spec.movementPhases;
   const firstStageId = movementPhases?.[0]?.id ?? "regroup";
@@ -145,11 +145,11 @@ export function TacticalPreview({
               href={currentState.asset}
               x={0}
               y={0}
-              width={LITE2_CURRENT_STATE_MAP_CALIBRATION.imageWidth}
-              height={LITE2_CURRENT_STATE_MAP_CALIBRATION.imageHeight}
+              width={currentState.imageWidth}
+              height={currentState.imageHeight}
               preserveAspectRatio="none"
               data-map-asset={currentState.asset}
-              data-map-frame={LITE2_CURRENT_STATE_MAP_CALIBRATION.coordinateFrame}
+              data-map-frame={currentState.coordinateFrame}
             />
           ) : scenario.mapBase ? (
             <>

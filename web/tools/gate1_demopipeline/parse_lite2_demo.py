@@ -1,7 +1,9 @@
-"""Offline Gate 1 extractor for the verified G2 vs Team Spirit Mirage demo.
+"""Offline demoparser2 adapter for deterministic real-match snapshots.
 
-This module intentionally stops at one deterministic NormalizedMatchState JSON
-artifact. It is not a parser service or a general replay engine.
+The configurable core is shared by Gate 1 compatibility and Gate 3 content
+batch extraction. It intentionally stops at one deterministic
+NormalizedMatchState JSON artifact; it is not a parser service or replay
+engine.
 """
 
 import argparse
@@ -10,7 +12,7 @@ import importlib.metadata
 import json
 import math
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -84,7 +86,6 @@ BOMB_EVENT_NAMES = (
     "bomb_exploded",
 )
 
-
 class DemoCompatibilityError(RuntimeError):
     """Raised when the supplied demo cannot support this exact proof target."""
 
@@ -97,6 +98,118 @@ class RoundBoundary:
     round_start_game_time: float
     round_duration_seconds: float
     score: dict[str, int]
+
+
+@dataclass(frozen=True)
+class ExtractionSpec:
+    """Human-supplied selection/configuration for one real demo snapshot.
+
+    The parser only recovers observable game state.  The spec identifies the
+    verified match roster and the exact map/time context; it does not contain
+    authored calls, reasons, routes, or professional conclusions.
+    """
+
+    map_name: str
+    match: str
+    map_asset: str | None
+    overview: dict[str, Any]
+    team_by_name: dict[str, str]
+    team_numbers: dict[str, int]
+    target_round: int
+    target_remaining_seconds: float
+    expected_score: dict[str, int] | None = None
+    expected_player_count: int = EXPECTED_PLAYER_COUNT
+    expected_tickrate: float = EXPECTED_TICKRATE
+    parser: str = "demoparser2"
+    parser_version: str = EXPECTED_PARSER_VERSION
+    selection_evidence: str = "configured map + verified roster + parser round/time anchors"
+    warning_remaining_seconds: float = 10.0
+    require_warning_anchor: bool = False
+    validate_roster_team_numbers: bool = False
+    render: dict[str, Any] | None = None
+
+    @property
+    def team_by_side(self) -> dict[str, str]:
+        team_by_number = {number: team for team, number in self.team_numbers.items()}
+        if set(team_by_number) != {2, 3}:
+            raise DemoCompatibilityError(
+                "CS2 extraction requires exactly one configured team for team_num 2 and 3"
+            )
+        return {"CT": team_by_number[3], "T": team_by_number[2]}
+
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, Any]) -> "ExtractionSpec":
+        def required_string(key: str) -> str:
+            value = raw.get(key)
+            if not isinstance(value, str) or not value.strip():
+                raise DemoCompatibilityError(f"extraction spec requires non-empty {key}")
+            return value.strip()
+
+        target = raw.get("target")
+        if not isinstance(target, Mapping):
+            raise DemoCompatibilityError("extraction spec requires a target object")
+        overview = raw.get("overview")
+        if not isinstance(overview, Mapping):
+            raise DemoCompatibilityError("extraction spec requires an overview object")
+        players = raw.get("players")
+        if not isinstance(players, Mapping) or not players:
+            raise DemoCompatibilityError("extraction spec requires a verified players mapping")
+        team_numbers = raw.get("teamNumbers")
+        if not isinstance(team_numbers, Mapping) or not team_numbers:
+            raise DemoCompatibilityError("extraction spec requires teamNumbers")
+
+        map_asset = raw.get("mapAsset")
+        if map_asset is not None and (not isinstance(map_asset, str) or not map_asset.strip()):
+            raise DemoCompatibilityError("mapAsset must be a non-empty string or null")
+        expected_score = raw.get("expectedScore")
+        if expected_score is not None and not isinstance(expected_score, Mapping):
+            raise DemoCompatibilityError("expectedScore must be an object when provided")
+
+        return cls(
+            map_name=required_string("mapName"),
+            match=required_string("match"),
+            map_asset=map_asset.strip() if isinstance(map_asset, str) else None,
+            overview=dict(overview),
+            team_by_name={str(name): str(team) for name, team in players.items()},
+            team_numbers={str(team): int(number) for team, number in team_numbers.items()},
+            target_round=int(target.get("humanRound")),
+            target_remaining_seconds=float(target.get("remainingSeconds")),
+            expected_score=(
+                {str(team): int(score) for team, score in expected_score.items()}
+                if isinstance(expected_score, Mapping)
+                else None
+            ),
+            expected_player_count=int(raw.get("expectedPlayerCount", EXPECTED_PLAYER_COUNT)),
+            expected_tickrate=float(raw.get("expectedTickrate", EXPECTED_TICKRATE)),
+            parser=str(raw.get("parser", "demoparser2")),
+            parser_version=str(raw.get("parserVersion", EXPECTED_PARSER_VERSION)),
+            selection_evidence=str(
+                raw.get(
+                    "selectionEvidence",
+                    "configured map + verified roster + parser round/time anchors",
+                )
+            ),
+            warning_remaining_seconds=float(raw.get("warningRemainingSeconds", 10.0)),
+            require_warning_anchor=bool(raw.get("requireWarningAnchor", False)),
+            validate_roster_team_numbers=bool(raw.get("validateRosterTeamNumbers", False)),
+            render=dict(raw["render"]) if isinstance(raw.get("render"), Mapping) else None,
+        )
+
+
+LITE2_EXTRACTION_SPEC = ExtractionSpec(
+    map_name=SUPPORTED_MAP,
+    match="G2 vs Team Spirit",
+    map_asset="/maps/Lite2_Map.png",
+    overview=MIRAGE_OVERVIEW,
+    team_by_name=EXPECTED_PLAYER_TEAMS,
+    team_numbers=EXPECTED_TEAM_NUMBERS,
+    target_round=EXPECTED_ROUND,
+    target_remaining_seconds=EXPECTED_REMAINING_SECONDS,
+    expected_score=EXPECTED_SCORE,
+    selection_evidence="de_mirage header + exact verified roster + Round 34 score/time anchors",
+    require_warning_anchor=True,
+    validate_roster_team_numbers=True,
+)
 
 
 def _is_missing(value: Any) -> bool:
@@ -165,10 +278,14 @@ def _string_id(value: Any, field: str) -> str:
     return identity
 
 
-def validate_demo_header(header: Mapping[str, Any]) -> None:
-    if header.get("map_name") != SUPPORTED_MAP:
+def validate_demo_header(
+    header: Mapping[str, Any],
+    *,
+    expected_map: str = SUPPORTED_MAP,
+) -> None:
+    if header.get("map_name") != expected_map:
         raise DemoCompatibilityError(
-            f"unsupported demo map: expected {SUPPORTED_MAP}, got {header.get('map_name')!r}"
+            f"unsupported demo map: expected {expected_map}, got {header.get('map_name')!r}"
         )
 
 
@@ -232,6 +349,7 @@ def validate_time_identity(
     *,
     warning_tick: int | None = None,
     warning_game_time: float | None = None,
+    warning_remaining_seconds: float = 10.0,
     tolerance: float = 0.02,
 ) -> None:
     target_time = _require_finite(target_game_time, "target_game_time")
@@ -264,7 +382,7 @@ def validate_time_identity(
         warning_remaining = boundary.round_duration_seconds - (
             warning_time - boundary.round_start_game_time
         )
-        if abs(warning_remaining - 10.0) > 0.1:
+        if abs(warning_remaining - warning_remaining_seconds) > 0.1:
             raise DemoCompatibilityError(
                 f"unexpected round-time warning anchor: remaining={warning_remaining}"
             )
@@ -273,6 +391,8 @@ def validate_time_identity(
 def normalize_player_row(
     row: Mapping[str, Any],
     team_by_player_id: Mapping[str, str],
+    *,
+    team_numbers: Mapping[str, int] | None = EXPECTED_TEAM_NUMBERS,
 ) -> dict[str, Any]:
     player_id = _string_id(
         _record_value(row, "player_steamid", "steamid"),
@@ -285,14 +405,15 @@ def normalize_player_row(
     if player_id not in team_by_player_id:
         raise DemoCompatibilityError(f"player identity is not in the verified roster: {name}")
     team = team_by_player_id[player_id]
-    if team not in EXPECTED_TEAM_NUMBERS:
+    if team_numbers is not None and team not in team_numbers:
         raise DemoCompatibilityError(f"unsupported team mapping for {name}: {team}")
     team_number = int(_require_finite(_record_value(row, "team_num"), "team_num"))
-    expected_team_number = EXPECTED_TEAM_NUMBERS[team]
-    if team_number != expected_team_number:
-        raise DemoCompatibilityError(
-            f"team identity mismatch for {name}: expected {expected_team_number}, got {team_number}"
-        )
+    if team_numbers is not None:
+        expected_team_number = team_numbers[team]
+        if team_number != expected_team_number:
+            raise DemoCompatibilityError(
+                f"team identity mismatch for {name}: expected {expected_team_number}, got {team_number}"
+            )
     health = int(_require_finite(_record_value(row, "health"), "health"))
     if health < 0 or health > 100:
         raise DemoCompatibilityError(f"invalid player health for {name}: {health}")
@@ -307,11 +428,14 @@ def normalize_player_row(
     }
     weapon = _optional_string(_record_value(row, "active_weapon_name"))
     place = _optional_string(_record_value(row, "last_place_name"))
+    side_by_team_number = {3: "CT", 2: "T"}
+    if team_number not in side_by_team_number:
+        raise DemoCompatibilityError(f"unsupported CS2 team_num for {name}: {team_number}")
     return {
         "id": player_id,
         "name": name,
         "team": team,
-        "side": "CT" if team_number == 3 else "T",
+        "side": side_by_team_number[team_number],
         "alive": alive,
         "health": health,
         "weapon": weapon,
@@ -325,8 +449,12 @@ def normalize_player_rows(
     team_by_player_id: Mapping[str, str],
     *,
     expected_count: int = EXPECTED_PLAYER_COUNT,
+    team_numbers: Mapping[str, int] | None = EXPECTED_TEAM_NUMBERS,
 ) -> list[dict[str, Any]]:
-    normalized = [normalize_player_row(row, team_by_player_id) for row in rows]
+    normalized = [
+        normalize_player_row(row, team_by_player_id, team_numbers=team_numbers)
+        for row in rows
+    ]
     if len(normalized) != expected_count:
         raise DemoCompatibilityError(
             f"expected {expected_count} player rows at target tick, got {len(normalized)}"
@@ -338,6 +466,45 @@ def normalize_player_rows(
     if side_counts != {"CT": 5, "T": 5}:
         raise DemoCompatibilityError(f"target is not a 5v5 state: {side_counts}")
     return sorted(normalized, key=lambda player: (player["team"], player["id"]))
+
+
+def infer_team_by_side(
+    rows: Sequence[Mapping[str, Any]],
+    team_by_player_id: Mapping[str, str],
+) -> dict[str, str]:
+    """Resolve the side-to-team mapping at the selected target tick.
+
+    CS2 team numbers describe the current side, so they can change after a
+    half switch. The verified roster supplies identity; target rows supply the
+    side at the exact decision moment.
+    """
+
+    side_by_team_number = {3: "CT", 2: "T"}
+    team_by_side: dict[str, str] = {}
+    for row in rows:
+        player_id = _string_id(
+            _record_value(row, "player_steamid", "steamid"),
+            "player_steamid",
+        )
+        if player_id not in team_by_player_id:
+            raise DemoCompatibilityError(
+                f"target player identity is not in the verified roster: {player_id}"
+            )
+        team_number = int(_require_finite(_record_value(row, "team_num"), "team_num"))
+        side = side_by_team_number.get(team_number)
+        if side is None:
+            raise DemoCompatibilityError(f"unsupported CS2 team_num at target tick: {team_number}")
+        team = team_by_player_id[player_id]
+        previous_team = team_by_side.get(side)
+        if previous_team is not None and previous_team != team:
+            raise DemoCompatibilityError(
+                f"target rows disagree about team on side {side}: {previous_team} vs {team}"
+            )
+        team_by_side[side] = team
+
+    if set(team_by_side) != {"CT", "T"} or len(set(team_by_side.values())) != 2:
+        raise DemoCompatibilityError("could not resolve two teams at the target tick")
+    return team_by_side
 
 
 def fold_bomb_events(events: Iterable[Mapping[str, Any]], target_tick: int) -> dict[str, Any]:
@@ -417,11 +584,17 @@ def serialize_deterministic(payload: Mapping[str, Any]) -> str:
     ) + "\n"
 
 
-def _validate_roster(player_info: Any) -> dict[str, str]:
+def _validate_roster(
+    player_info: Any,
+    expected_player_teams: Mapping[str, str] = EXPECTED_PLAYER_TEAMS,
+    team_numbers: Mapping[str, int] = EXPECTED_TEAM_NUMBERS,
+    *,
+    validate_team_numbers: bool = True,
+) -> dict[str, str]:
     records = _frame_records(player_info)
-    if len(records) != EXPECTED_PLAYER_COUNT:
+    if len(records) != len(expected_player_teams):
         raise DemoCompatibilityError(
-            f"verified target roster must contain 10 players, got {len(records)}"
+            f"verified target roster must contain {len(expected_player_teams)} players, got {len(records)}"
         )
     actual_names: set[str] = set()
     team_by_player_id: dict[str, str] = {}
@@ -430,26 +603,32 @@ def _validate_roster(player_info: Any) -> dict[str, str]:
         if _is_missing(name_value):
             raise DemoCompatibilityError("roster row is missing player name")
         name = str(_to_python(name_value))
-        if name not in EXPECTED_PLAYER_TEAMS:
+        if name not in expected_player_teams:
             raise DemoCompatibilityError(f"unexpected player in target roster: {name}")
         if name in actual_names:
             raise DemoCompatibilityError(f"duplicate player name in target roster: {name}")
         actual_names.add(name)
         player_id = _string_id(_record_value(row, "steamid", "player_steamid"), "steamid")
         team_number = int(_require_finite(_record_value(row, "team_number", "team_num"), "team_number"))
-        expected_team = EXPECTED_PLAYER_TEAMS[name]
-        if team_number != EXPECTED_TEAM_NUMBERS[expected_team]:
+        expected_team = expected_player_teams[name]
+        if validate_team_numbers and expected_team not in team_numbers:
+            raise DemoCompatibilityError(f"unsupported configured team for {name}: {expected_team}")
+        if validate_team_numbers and team_number != team_numbers[expected_team]:
             raise DemoCompatibilityError(
-                f"roster team mismatch for {name}: expected {EXPECTED_TEAM_NUMBERS[expected_team]}, "
+                f"roster team mismatch for {name}: expected {team_numbers[expected_team]}, "
                 f"got {team_number}"
             )
         team_by_player_id[player_id] = expected_team
-    if actual_names != set(EXPECTED_PLAYER_TEAMS):
-        raise DemoCompatibilityError("target roster does not match the verified G2/Team Spirit roster")
+    if actual_names != set(expected_player_teams):
+        raise DemoCompatibilityError("target roster does not match the configured verified roster")
     return team_by_player_id
 
 
-def _score_from_records(records: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+def _score_from_records(
+    records: Sequence[Mapping[str, Any]],
+    team_by_side: Mapping[str, str] | None = None,
+) -> dict[str, int]:
+    configured_team_by_side = team_by_side or {"CT": "G2", "T": "Team Spirit"}
     score: dict[str, int] = {}
     for row in records:
         team_name_value = _record_value(row, "team_name")
@@ -458,10 +637,14 @@ def _score_from_records(records: Sequence[Mapping[str, Any]]) -> dict[str, int]:
             continue
         team_name = str(_to_python(team_name_value))
         if team_name == "CT":
-            score["G2"] = int(_require_finite(rounds_value, "team_rounds_total"))
+            team = configured_team_by_side.get("CT")
         elif team_name in {"TERRORIST", "T"}:
-            score["Team Spirit"] = int(_require_finite(rounds_value, "team_rounds_total"))
-    if set(score) != {"G2", "Team Spirit"}:
+            team = configured_team_by_side.get("T")
+        else:
+            team = None
+        if team is not None:
+            score[team] = int(_require_finite(rounds_value, "team_rounds_total"))
+    if set(score) != set(configured_team_by_side.values()):
         raise DemoCompatibilityError(f"could not resolve both team scores: {score!r}")
     return score
 
@@ -477,7 +660,10 @@ def _first_record_per_tick(records: Sequence[Mapping[str, Any]]) -> dict[int, di
     return per_tick
 
 
-def _parse_boundaries(parser: Any) -> list[RoundBoundary]:
+def _parse_boundaries(
+    parser: Any,
+    team_by_side: Mapping[str, str] | None = None,
+) -> list[RoundBoundary]:
     freeze_end_records = _frame_records(parser.parse_event("round_freeze_end"))
     freeze_end_ticks = sorted(
         {
@@ -519,7 +705,7 @@ def _parse_boundaries(parser: Any) -> list[RoundBoundary]:
                 freeze_end_tick=tick,
                 round_start_game_time=round_start_game_time,
                 round_duration_seconds=round_duration,
-                score=_score_from_records(rows),
+                score=_score_from_records(rows, team_by_side),
             )
         )
     human_rounds = [boundary.human_round for boundary in boundaries]
@@ -558,6 +744,16 @@ def _event_records(parser: Any, event_names: Sequence[str]) -> list[dict[str, An
     return records
 
 
+def _round_end_ticks(parser: Any) -> list[int]:
+    return sorted(
+        {
+            int(_require_finite(_record_value(row, "tick"), "round_end tick"))
+            for row in _frame_records(parser.parse_event("round_end"))
+            if not _is_missing(_record_value(row, "tick"))
+        }
+    )
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -566,7 +762,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest().upper()
 
 
-def _load_parser(demo_path: Path) -> tuple[Any, Mapping[str, Any], str]:
+def _load_parser(
+    demo_path: Path,
+    *,
+    expected_map: str = SUPPORTED_MAP,
+    expected_parser_version: str = EXPECTED_PARSER_VERSION,
+) -> tuple[Any, Mapping[str, Any], str]:
     if not demo_path.is_file() or demo_path.suffix.lower() != ".dem":
         raise DemoCompatibilityError(f"real .dem asset is unavailable: {demo_path}")
     try:
@@ -579,14 +780,14 @@ def _load_parser(demo_path: Path) -> tuple[Any, Mapping[str, Any], str]:
         parser_version = importlib.metadata.version("demoparser2")
     except importlib.metadata.PackageNotFoundError as exc:
         raise DemoCompatibilityError("demoparser2 package metadata is unavailable") from exc
-    if parser_version != EXPECTED_PARSER_VERSION:
+    if parser_version != expected_parser_version:
         raise DemoCompatibilityError(
-            f"unsupported demoparser2 version: expected {EXPECTED_PARSER_VERSION}, got {parser_version}"
+            f"unsupported demoparser2 version: expected {expected_parser_version}, got {parser_version}"
         )
     try:
         parser = DemoParser(str(demo_path))
         header = parser.parse_header()
-        validate_demo_header(header)
+        validate_demo_header(header, expected_map=expected_map)
     except DemoCompatibilityError:
         raise
     except Exception as exc:  # demoparser2 exposes parser-specific exceptions
@@ -594,9 +795,17 @@ def _load_parser(demo_path: Path) -> tuple[Any, Mapping[str, Any], str]:
     return parser, header, parser_version
 
 
-def inspect_round_range(demo_path: Path) -> dict[str, Any]:
-    parser, header, parser_version = _load_parser(demo_path)
-    boundaries = _parse_boundaries(parser)
+def inspect_round_range(
+    demo_path: Path,
+    spec: ExtractionSpec | None = None,
+) -> dict[str, Any]:
+    selected_spec = spec or LITE2_EXTRACTION_SPEC
+    parser, header, parser_version = _load_parser(
+        demo_path,
+        expected_map=selected_spec.map_name,
+        expected_parser_version=selected_spec.parser_version,
+    )
+    boundaries = _parse_boundaries(parser, {"CT": "CT", "T": "T"})
     return {
         "file": demo_path.name,
         "sha256": _sha256(demo_path),
@@ -608,44 +817,91 @@ def inspect_round_range(demo_path: Path) -> dict[str, Any]:
     }
 
 
-def extract_lite2_demo(
+def format_round_clock(seconds: float) -> str:
+    total_seconds = int(round(_require_finite(seconds, "remaining_seconds")))
+    if total_seconds < 0:
+        raise DemoCompatibilityError("remaining_seconds cannot be negative")
+    return f"{total_seconds // 60}:{total_seconds % 60:02d}"
+
+
+def extract_demo(
     demo_path: Path,
     output_path: Path,
-    *,
-    human_round: int = EXPECTED_ROUND,
-    remaining_seconds: float = EXPECTED_REMAINING_SECONDS,
+    spec: ExtractionSpec,
 ) -> dict[str, Any]:
-    parser, header, parser_version = _load_parser(demo_path)
-    team_by_player_id = _validate_roster(parser.parse_player_info())
-    boundaries = _parse_boundaries(parser)
-    boundary = select_round_boundary(boundaries, human_round)
-    tickrate = infer_tickrate(_game_time_samples(parser, boundary))
-    target_tick = select_target_tick(boundary, remaining_seconds, tickrate)
+    if spec.parser != "demoparser2":
+        raise DemoCompatibilityError(f"unsupported parser adapter: {spec.parser}")
+    parser, header, parser_version = _load_parser(
+        demo_path,
+        expected_map=spec.map_name,
+        expected_parser_version=spec.parser_version,
+    )
+    team_by_player_id = _validate_roster(
+        parser.parse_player_info(),
+        spec.team_by_name,
+        spec.team_numbers,
+        validate_team_numbers=spec.validate_roster_team_numbers,
+    )
+    # Boundary scores are initially keyed by the side visible in the demo.
+    # The selected target rows resolve the real team identity after a half
+    # switch, so no fixed G2/Spirit side assumption is needed here.
+    boundaries = _parse_boundaries(parser, {"CT": "CT", "T": "T"})
+    boundary = select_round_boundary(boundaries, spec.target_round)
+    tickrate = infer_tickrate(
+        _game_time_samples(parser, boundary),
+        expected_tickrate=spec.expected_tickrate,
+    )
+    target_tick = select_target_tick(
+        boundary,
+        spec.target_remaining_seconds,
+        tickrate,
+    )
 
     next_boundaries = [item for item in boundaries if item.freeze_end_tick > boundary.freeze_end_tick]
     next_boundary_tick = next_boundaries[0].freeze_end_tick if next_boundaries else target_tick + 1
+    round_end_ticks = [
+        tick
+        for tick in _round_end_ticks(parser)
+        if boundary.freeze_end_tick <= tick < next_boundary_tick
+    ]
+    if round_end_ticks and target_tick >= round_end_ticks[0]:
+        raise DemoCompatibilityError(
+            f"target tick {target_tick} is after the selected round ended at tick {round_end_ticks[0]}"
+        )
     warning_events = [
         event
         for event in _frame_records(parser.parse_event("round_time_warning"))
         if boundary.freeze_end_tick <= int(_require_finite(_record_value(event, "tick"), "warning tick")) < next_boundary_tick
     ]
-    if len(warning_events) != 1:
+    if len(warning_events) > 1:
         raise DemoCompatibilityError(
-            f"expected exactly one Round {human_round} time-warning anchor, got {len(warning_events)}"
+            f"expected at most one Round {spec.target_round} time-warning anchor, got {len(warning_events)}"
         )
-    warning_tick = int(_require_finite(_record_value(warning_events[0], "tick"), "warning tick"))
-    warning_records = _frame_records(parser.parse_ticks(["game_time"], ticks=[warning_tick]))
-    warning_per_tick = _first_record_per_tick(warning_records)
-    if warning_tick not in warning_per_tick:
-        raise DemoCompatibilityError("round-time warning game time is unavailable")
-    warning_game_time = _require_finite(
-        _record_value(warning_per_tick[warning_tick], "game_time"),
-        "warning game_time",
-    )
+    warning_tick: int | None = None
+    warning_game_time: float | None = None
+    if warning_events:
+        warning_tick = int(_require_finite(_record_value(warning_events[0], "tick"), "warning tick"))
+        warning_records = _frame_records(parser.parse_ticks(["game_time"], ticks=[warning_tick]))
+        warning_per_tick = _first_record_per_tick(warning_records)
+        if warning_tick not in warning_per_tick:
+            raise DemoCompatibilityError("round-time warning game time is unavailable")
+        warning_game_time = _require_finite(
+            _record_value(warning_per_tick[warning_tick], "game_time"),
+            "warning game_time",
+        )
+    elif spec.require_warning_anchor:
+        raise DemoCompatibilityError(
+            f"expected one Round {spec.target_round} time-warning anchor, got 0"
+        )
 
     wanted_fields = list(dict.fromkeys(PLAYER_FIELDS + GAME_RULE_FIELDS))
     target_records = _frame_records(parser.parse_ticks(wanted_fields, ticks=[target_tick]))
-    players = normalize_player_rows(target_records, team_by_player_id)
+    players = normalize_player_rows(
+        target_records,
+        team_by_player_id,
+        expected_count=spec.expected_player_count,
+        team_numbers=spec.team_numbers if spec.validate_roster_team_numbers else None,
+    )
     target_time_values = [
         _require_finite(_record_value(row, "game_time"), "target game_time") for row in target_records
     ]
@@ -658,15 +914,25 @@ def extract_lite2_demo(
         boundary,
         target_tick,
         target_game_time,
-        remaining_seconds,
+        spec.target_remaining_seconds,
         tickrate,
         warning_tick=warning_tick,
         warning_game_time=warning_game_time,
+        warning_remaining_seconds=spec.warning_remaining_seconds,
     )
-    target_score = _score_from_records(target_records)
-    if target_score != boundary.score or target_score != EXPECTED_SCORE:
+    target_team_by_side = infer_team_by_side(target_records, team_by_player_id)
+    target_score = _score_from_records(target_records, target_team_by_side)
+    boundary_score = {
+        target_team_by_side[side]: boundary.score[side]
+        for side in ("CT", "T")
+    }
+    if target_score != boundary_score:
         raise DemoCompatibilityError(
-            f"target score does not match the verified Lite2 state: {target_score!r}"
+            f"target score disagrees with the selected round boundary: {target_score!r} vs {boundary_score!r}"
+        )
+    if spec.expected_score is not None and target_score != spec.expected_score:
+        raise DemoCompatibilityError(
+            f"target score does not match the configured expected score: {target_score!r}"
         )
     target_round_values = {
         int(_require_finite(_record_value(row, "total_rounds_played"), "total_rounds_played"))
@@ -693,24 +959,36 @@ def extract_lite2_demo(
         else None,
     }
 
+    unavailable_fields = [
+        "authoritative aggregate alive counters at the target snapshot",
+        "round_in_progress at the target snapshot",
+        "team organization metadata from the demo header",
+    ]
+    if warning_tick is None:
+        unavailable_fields.append("round_time_warning event at the selected round")
+
+    map_payload: dict[str, Any] = {
+        "name": spec.map_name,
+        "asset": spec.map_asset,
+        "overview": spec.overview,
+    }
+    if spec.render is not None:
+        map_payload["render"] = spec.render
+
     payload = {
         "schemaVersion": 1,
         "source": {
             "kind": "offline-demo",
             "demoFile": demo_path.name,
             "demoSha256": _sha256(demo_path),
-            "match": "G2 vs Team Spirit",
-            "parser": "demoparser2",
+            "match": spec.match,
+            "parser": spec.parser,
             "parserVersion": parser_version,
             "demoVersion": header.get("demo_version_name"),
             "patchVersion": header.get("patch_version"),
-            "selectionEvidence": "de_mirage header + exact verified roster + Round 34 score/time anchors",
+            "selectionEvidence": spec.selection_evidence,
         },
-        "map": {
-            "name": SUPPORTED_MAP,
-            "asset": "/maps/Lite2_Map.png",
-            "overview": MIRAGE_OVERVIEW,
-        },
+        "map": map_payload,
         "round": {
             "number": boundary.human_round,
             "parserRound": boundary.parser_round,
@@ -719,10 +997,10 @@ def extract_lite2_demo(
         },
         "tick": target_tick,
         "time": {
-            "display": "0:40",
+            "display": format_round_clock(spec.target_remaining_seconds),
             "semantics": "round_clock_remaining",
-            "remainingSeconds": float(remaining_seconds),
-            "elapsedSeconds": boundary.round_duration_seconds - float(remaining_seconds),
+            "remainingSeconds": float(spec.target_remaining_seconds),
+            "elapsedSeconds": boundary.round_duration_seconds - float(spec.target_remaining_seconds),
             "roundDurationSeconds": boundary.round_duration_seconds,
             "roundStartTick": boundary.freeze_end_tick,
             "roundStartGameTime": boundary.round_start_game_time,
@@ -754,18 +1032,14 @@ def extract_lite2_demo(
                 "bomb_pickup/bomb_dropped/bomb_planted events",
                 "round_time_warning",
             ],
-            "unavailableFields": [
-                "authoritative aggregate alive counters at the target snapshot",
-                "round_in_progress at the target snapshot",
-                "team organization metadata from the demo header",
-            ],
+            "unavailableFields": unavailable_fields,
             "derivedFields": [
-                "team name from the explicitly verified G2/Team Spirit roster",
+                "team name from the explicitly verified roster in the extraction spec",
                 "side from demoparser2 team_num (3=CT, 2=T)",
                 "alive player count from the ten per-player is_alive rows",
-                "target tick from round_start_time/game_time, 64 tick/s, and the round-time warning anchor",
+                "target tick from round_start_time/game_time, inferred tick/s, and the round-time warning anchor",
                 "bomb carrier from the ordered bomb pickup/drop event fold through the target tick",
-                "0..100 position from the Mirage overview metadata",
+                "0..100 position from the configured map overview metadata",
             ],
         },
     }
@@ -774,11 +1048,36 @@ def extract_lite2_demo(
     return payload
 
 
+def extract_lite2_demo(
+    demo_path: Path,
+    output_path: Path,
+    *,
+    human_round: int = EXPECTED_ROUND,
+    remaining_seconds: float = EXPECTED_REMAINING_SECONDS,
+) -> dict[str, Any]:
+    """Gate 1 compatibility adapter over the configurable extractor."""
+
+    return extract_demo(
+        demo_path,
+        output_path,
+        replace(
+            LITE2_EXTRACTION_SPEC,
+            target_round=human_round,
+            target_remaining_seconds=remaining_seconds,
+        ),
+    )
+
+
 def _build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--demo", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--inspect-rounds", action="store_true")
+    parser.add_argument(
+        "--spec",
+        type=Path,
+        help="JSON ExtractionSpec for a non-Lite2 demo; omitted for the Gate 1 adapter",
+    )
     parser.add_argument("--human-round", type=int, default=EXPECTED_ROUND)
     parser.add_argument("--remaining-seconds", type=float, default=EXPECTED_REMAINING_SECONDS)
     return parser
@@ -787,17 +1086,25 @@ def _build_argument_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_argument_parser().parse_args(argv)
     try:
+        spec = LITE2_EXTRACTION_SPEC
+        if args.spec is not None:
+            spec = ExtractionSpec.from_mapping(
+                json.loads(args.spec.read_text(encoding="utf-8"))
+            )
         if args.inspect_rounds:
-            print(serialize_deterministic(inspect_round_range(args.demo)), end="")
+            print(serialize_deterministic(inspect_round_range(args.demo, spec)), end="")
             return 0
         if args.output is None:
             raise DemoCompatibilityError("--output is required unless --inspect-rounds is used")
-        payload = extract_lite2_demo(
-            args.demo,
-            args.output,
-            human_round=args.human_round,
-            remaining_seconds=args.remaining_seconds,
-        )
+        if args.spec is None:
+            payload = extract_lite2_demo(
+                args.demo,
+                args.output,
+                human_round=args.human_round,
+                remaining_seconds=args.remaining_seconds,
+            )
+        else:
+            payload = extract_demo(args.demo, args.output, spec)
         print(
             f"extracted {payload['source']['demoFile']}: "
             f"human round {payload['round']['number']} at tick {payload['tick']} "

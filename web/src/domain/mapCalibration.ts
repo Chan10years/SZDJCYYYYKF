@@ -8,6 +8,13 @@ export type ImagePosition = {
   y: number;
 };
 
+export type ImageCalibration = {
+  affine: {
+    x: { scale: number; offset: number };
+    y: { scale: number; offset: number };
+  };
+};
+
 type CalibrationLandmark = {
   id: string;
   label: string;
@@ -106,21 +113,30 @@ function assertNormalizedCoordinate(value: number, field: string): void {
 }
 
 /** Convert the product's 0..100 overview coordinate into clean-image pixels. */
-export function normalizedToImagePosition(
+export function normalizedToImagePositionWithCalibration(
   position: Pick<TacticalMapPosition, "x" | "y">,
+  calibration: ImageCalibration,
 ): ImagePosition {
   assertNormalizedCoordinate(position.x, "x");
   assertNormalizedCoordinate(position.y, "y");
   return {
     x: roundTo(
-      LITE2_CURRENT_STATE_MAP_CALIBRATION.affine.x.offset +
-        position.x * LITE2_CURRENT_STATE_MAP_CALIBRATION.affine.x.scale,
+      calibration.affine.x.offset + position.x * calibration.affine.x.scale,
       2,
     ),
     y: roundTo(
-      LITE2_CURRENT_STATE_MAP_CALIBRATION.affine.y.offset +
-        position.y * LITE2_CURRENT_STATE_MAP_CALIBRATION.affine.y.scale,
+      calibration.affine.y.offset + position.y * calibration.affine.y.scale,
       2,
     ),
   };
+}
+
+/** Backwards-compatible Lite2 calibration adapter used by authored tests. */
+export function normalizedToImagePosition(
+  position: Pick<TacticalMapPosition, "x" | "y">,
+): ImagePosition {
+  return normalizedToImagePositionWithCalibration(
+    position,
+    LITE2_CURRENT_STATE_MAP_CALIBRATION,
+  );
 }
