@@ -15,7 +15,24 @@ Connected Decisions 是一个面向 CS2 决策分析与复盘的 **AI Second Coa
 
 当前阶段不建设完整 Team SaaS，第一目标是把 Second Coach 核心链做可信、做完整。
 
-## 2. 核心问题
+## 2. 当前阶段：Gate 1 — Real Match Vertical Slice
+
+Gate 0 — Trust & Reliability 已完成并关闭。当前重点从“修旧 Demo”进入真实训练内容验证：
+
+```text
+真实训练赛
+→ 真实 .dem
+→ 真实比赛状态
+→ ScenarioDraft
+→ Human QA
+→ Existing Connected Decisions
+```
+
+由于现在有真实训练赛数据窗口，当前允许优先验证这条链。`.dem` Pipeline 是内容生产能力，不是产品核心卖点；AI Second Coach 仍然是 2026-09-19 演示的主角。
+
+Gate 1 只允许最小 Vertical Slice，不顺势建设完整 Dataset Platform、FastAPI、数据库、Worker 或其他新基础设施。自动 Candidate 和 Observable Knowledge 全自动化不是 Gate 1 硬要求。
+
+## 3. 核心问题
 
 > 玩家先完成独立判断，再接入 AI 的第二视角后，他的判断过程发生了什么变化？
 
@@ -29,7 +46,7 @@ Connected Decisions 是一个面向 CS2 决策分析与复盘的 **AI Second Coa
 
 AI 不是答案机器。
 
-## 3. 核心训练链路
+## 4. 核心训练链路
 
 ```text
 Situation
@@ -52,7 +69,7 @@ Situation
 5. 系统忠实保存用户实际判断和 Reasons；
 6. Review 要帮助用户形成可迁移的判断经验。
 
-## 4. AI Second Coach
+## 5. AI Second Coach
 
 AI 的角色是 **Pressure Test**。
 
@@ -74,7 +91,7 @@ AI 的角色是 **Pressure Test**。
 
 AI Adoption、Professional Alignment 可以记录，但不得直接当作“能力分数”。
 
-## 5. 用户模式
+## 6. 用户模式
 
 ### Team / Coach — 长期主方向
 
@@ -100,7 +117,7 @@ AI Adoption、Professional Alignment 可以记录，但不得直接当作“能�
 
 Team 与 Individual 共享训练内核，不做两套产品。
 
-## 6. Scenario 与可信度
+## 7. Scenario 与可信度
 
 Scenario 是核心内容单元。
 
@@ -120,7 +137,7 @@ Scenario 是核心内容单元。
 
 未核验内容不得作为 verified professional evidence。
 
-## 7. 信息公平
+## 8. 信息公平
 
 决策页只能展示该决策时刻应该知道的信息。
 
@@ -132,7 +149,7 @@ Scenario 是核心内容单元。
 
 禁止：未来时刻截图、隐藏敌方位置、错地图 / 错回合素材、结果暗示。
 
-## 8. Tactical Preview
+## 9. Tactical Preview
 
 职责：清楚表达用户 Final Call 的空间意义。
 
@@ -142,7 +159,7 @@ Scenario 是核心内容单元。
 
 近期优先继续复用现有 Tactical Preview，不因未来 `.dem` Pipeline 提前重写。
 
-## 9. Review 要留下什么
+## 10. Review 要留下什么
 
 产品需要从“记录改没改”升级为“记录为什么这么判断”。
 
@@ -169,7 +186,7 @@ Review 最终应能回答：
 4. 职业路径给了什么参考？
 5. 下一次类似情况我要检查什么？
 
-## 10. `.dem` 内容生产能力
+## 11. `.dem` 内容生产能力
 
 `.dem` 自动化是重要生产力升级，但不是核心卖点。
 
@@ -193,10 +210,10 @@ Review 最终应能回答：
 
 - 高质量 Scenario 可以继续人工制作；
 - 自动 Candidate 不是 9 月 19 日演示硬要求；
-- Pipeline 只在当前核心修复完成后做 Vertical Spike；
+- Gate 1 当前允许优先验证最小 Vertical Slice；Phase R 审批前不写 production code；
 - 自动候选永远不直接等于 Verified Scenario。
 
-## 11. 2026-09-19 演示目标
+## 12. 2026-09-19 演示目标
 
 课堂演示优先证明：
 
@@ -215,12 +232,13 @@ Review 最终应能回答：
 
 加分项：
 
+- Gate 1 成功后优先展示至少一个来自自己真实训练赛的 Scenario；
 - 新增少量高质量 Scenario；
 - `.dem → Round → Tick → Normalized State → TacticalPreview` Vertical Spike。
 
-## 12. 当前明确不做
+## 13. 当前明确不做
 
-本周期不主动建设：
+除 Gate 1 已授权的最小 `.dem` Vertical Slice 外，本周期不主动建设：
 
 - 完整 Team SaaS；
 - 登录 / 权限；
@@ -236,7 +254,7 @@ Review 最终应能回答：
 - 多模型 / 多 Agent 产品架构；
 - 大型 UI 重做。
 
-## 13. 视觉方向
+## 14. 视觉方向
 
 > 成熟数据产品 × 克制电竞语言。
 
@@ -244,7 +262,7 @@ Review 最终应能回答：
 
 避免满屏 Glow、重 Cyberpunk、军事海报、无意义 Dashboard 和装饰压过内容。
 
-## 14. 当前成功标准
+## 15. 当前成功标准
 
 ### Trust
 - Tactical Preview 空间正确；

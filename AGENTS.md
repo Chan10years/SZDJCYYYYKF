@@ -6,13 +6,14 @@
 
 开发前依次阅读：
 
-`AGENTS.md` → `docs/architecture/CONNECTED_DECISIONS_ARCHITECTURE_UPGRADE_PLAYBOOK.md` → `PRODUCTION.md` → `TASKS.md`
+`AGENTS.md` → `docs/architecture/CONNECTED_DECISIONS_ARCHITECTURE_UPGRADE_PLAYBOOK.md` → `PRODUCTION.md` → `TASKS.md` → `README.md`
 
 - Playbook：长期架构与升级边界；
 - `PRODUCTION.md`：当前产品基线；
-- `TASKS.md`：当前 10 天升级任务。
+- `TASKS.md`：当前 Gate 与执行任务。
+- `README.md`：仓库入口与运行方式。
 
-只执行当前明确指定的 Gate / Task，不得提前实现后续阶段。
+只执行当前明确指定的 Gate / Task，不得跨 Gate 偷跑。已完成的 Gate 不因惯性重新打开；只有新的、明确的回归证据才足以触发重新评估。
 
 ## 2. 产品核心
 
@@ -33,13 +34,19 @@ Connected Decisions 的核心定位：
 5. 不静默改写用户判断、Reasons 或历史记录；
 6. 产品训练的是判断过程，不是“猜中职业答案”。
 
-## 3. 当前优先级
+## 3. 当前阶段与优先级
 
-固定顺序：
+Gate 0 — Trust & Reliability 已 CLOSED。当前进入 **Gate 1 — Real Match Vertical Slice**，最高优先级是验证真实训练赛数据如何进入现有 Second Coach，而不是重做产品。
 
-`训练事实可信 → 核心流程稳定 → Second Coach 复盘完整 → 内容生产效率 → 团队能力 → 规模化`
+当前验证链：
 
-`.dem` 自动解析、Candidate、Team Mode 等都不能抢占当前 Second Coach 主线。
+`真实训练赛 → 真实 .dem → 真实比赛状态 → ScenarioDraft → Human QA → Existing Connected Decisions`
+
+`.dem` Pipeline 是内容生产能力，不是产品核心卖点。当前优先级为：
+
+`训练事实可信 → 核心流程稳定 → Second Coach 复盘完整 → 真实内容生产 → 团队能力 → 规模化`
+
+Gate 1 的 Phase R（GitHub Wheel Survey）正在执行：先调查成熟开源轮子，不写 production code；Phase R 完成后必须交总控审批。未批准前禁止进入正式 Spike 或 Pipeline 施工。
 
 ## 4. 当前技术边界
 
@@ -53,13 +60,20 @@ Connected Decisions 的核心定位：
 - Vitest / React Testing Library
 - pnpm
 
-除非当前 Gate 明确要求，否则不引入：
+Gate 1 已明确授权研究并在审批后实现 **最小** `.dem` Data Pipeline Vertical Slice：
+
+- Phase R 只做轮子调查与比较，不改 production code；
+- Phase S 只验证一个真实 `.dem` 的指定 Round / Tick、必要比赛状态、`NormalizedMatchState`、`TacticalPreviewData` 与当前 Tactical Preview；
+- Phase I 才将真实节点变成 `ScenarioDraft`，经人工 / 教练 QA 后接入现有 Connected Decisions；
+- `ScenarioDraft`、自动 Candidate 与解析结果不得自动成为 `verified` Scenario。
+
+这项授权不等于建设完整 Dataset Platform。除非当前 Gate 明确且单独批准，否则不引入：
 
 - 数据库 / 登录 / Team Domain；
 - 新状态管理库；
 - 新后端服务；
 - Worker / Queue；
-- `.dem` Parser Service；
+- 完整 `.dem` Parser Service、上传平台或 Replay Engine；
 - 大规模 Scenario Schema Migration；
 - 核心 reducer / 训练流程替换；
 - Tactical Preview 核心替换。
@@ -82,7 +96,7 @@ Connected Decisions 的核心定位：
 
 至少核验：赛事、队伍、地图、回合、决策时刻、存活人数、Bomb / Objective、用户可知 Facts、Tactical Preview、Professional Reference、素材来源。
 
-`draft / practice / verified` 必须保持语义隔离。
+`draft / practice / verified` 必须保持语义隔离。`.dem` 提取结果和 `ScenarioDraft` 默认是不可信候选，必须保留 provenance，并经过 Human QA。
 
 Tactical Preview：
 
@@ -113,7 +127,7 @@ live AI 必须有可验证 fallback / recovery。
 ## 8. 三 Agent 协作
 
 ### Implementer
-负责当前 Gate 的实现、必要测试和自测；不得扩大 Scope。
+负责当前 Gate 的实现、必要测试和自测；不得扩大 Scope。Gate 1 Phase R 期间只做调查，不写 production code。
 
 ### Reviewer
 默认只读；检查 diff、复现原 Bug、运行测试 / 浏览器验证、检查回归与 Scope Drift。原则上不替 Implementer 修代码。
@@ -127,7 +141,7 @@ live AI 必须有可验证 fallback / recovery。
 
 - 数据库 / 登录 / Team / Organization Domain；
 - 新后端服务 / Worker / Queue；
-- `.dem` Parser Service；
+- 完整 `.dem` Parser Service 或 Dataset Platform；
 - Scenario 大规模 Schema Migration；
 - AI Provider / Model Routing；
 - Public API 大改；
@@ -139,7 +153,7 @@ live AI 必须有可验证 fallback / recovery。
 
 `ARCHITECTURE DECISION REQUIRED`
 
-等待总控确认。
+Gate 1 的最小 `.dem` Vertical Slice 仅在 Phase R 审批通过后例外允许；它不解除上述其他边界。等待总控确认。
 
 ## 10. 测试与验收
 
@@ -167,6 +181,7 @@ pnpm build
 出现以下情况立即停止扩展并报告：
 
 - 当前任务需要跨 Gate；
+- Phase R 尚未审批却要求进入 Pipeline 施工；
 - 修 Bug 需要大规模重构；
 - 文档与真实代码直接冲突；
 - 需要当前 Stage 未授权的基础设施；
