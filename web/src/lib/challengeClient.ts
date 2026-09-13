@@ -13,6 +13,7 @@ type RequestChallengeArgs = {
   scenarioId: string;
   initialCall: CallId;
   reasonIds: ReasonId[];
+  optionalFreeformReasoning?: string;
 };
 
 export const CHALLENGE_CLIENT_TIMEOUT_MS = 5_000;
@@ -34,7 +35,12 @@ export async function requestChallengeOnClient(
   }
 
   if (!useRemoteChallenge) {
-    return buildFallbackChallenge(scenario, args.initialCall, args.reasonIds);
+    return buildFallbackChallenge(
+      scenario,
+      args.initialCall,
+      args.reasonIds,
+      args.optionalFreeformReasoning,
+    );
   }
 
   try {
@@ -61,6 +67,11 @@ export async function requestChallengeOnClient(
     }
     return result.data;
   } catch {
-    return buildFallbackChallenge(scenario, args.initialCall, args.reasonIds);
+    return buildFallbackChallenge(
+      scenario,
+      args.initialCall,
+      args.reasonIds,
+      args.optionalFreeformReasoning,
+    );
   }
 }

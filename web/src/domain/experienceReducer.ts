@@ -232,13 +232,41 @@ export function experienceReducer(
       if (!scenario) {
         return state;
       }
+      const scenarioCalls = scenario.calls.map((call) => ({ ...call }));
+      const selectedReasons = state.reasonIds
+        .map((reasonId) =>
+          scenario.reasonOptions.find((reason) => reason.id === reasonId),
+        )
+        .filter((reason): reason is (typeof scenario.reasonOptions)[number] =>
+          Boolean(reason),
+        )
+        .map((reason) => ({ ...reason }));
+      const initialCallSnapshot = scenarioCalls.find(
+        (call) => call.id === state.initialCall,
+      );
+      const finalCallSnapshot = scenarioCalls.find(
+        (call) => call.id === state.finalCall,
+      );
+      if (
+        selectedReasons.length !== state.reasonIds.length ||
+        !initialCallSnapshot ||
+        !finalCallSnapshot
+      ) {
+        return state;
+      }
       const round: RoundResult = {
         scenarioId: scenario.id,
+        scenarioSnapshot: {
+          title: scenario.title,
+          verificationStatus: scenario.verificationStatus,
+          calls: scenarioCalls,
+          selectedReasons,
+        },
         initialCall: state.initialCall,
-        reasonIds: state.reasonIds,
+        reasonIds: [...state.reasonIds],
         optionalFreeformReasoning:
           state.optionalFreeformReasoning.trim() || undefined,
-        aiChallenge: state.challenge,
+        aiChallenge: { ...state.challenge },
         aiStance: state.challenge.stance,
         aiAlternativeCall: state.challenge.alternativeCall,
         aiResponseSource: state.challenge.source,
@@ -249,7 +277,10 @@ export function experienceReducer(
         finalCall: state.finalCall,
         changedAfterAI: state.finalCall !== state.initialCall,
         professionalCall: scenario.professional.call,
-        professionalReference: scenario.professional,
+        professionalReference: {
+          ...scenario.professional,
+          observations: [...scenario.professional.observations],
+        },
         postRoundReflection: state.postRoundReflection.trim() || undefined,
         nextTrainingHypothesis:
           state.nextTrainingHypothesis.trim() ||

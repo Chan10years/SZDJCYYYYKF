@@ -1,9 +1,8 @@
-import type { RoundResult, Scenario } from "@/domain/types";
+import type { RoundResult } from "@/domain/types";
 import { getAiSourceLabel } from "@/domain/aiSource";
 
 type ReasoningChainProps = {
   rounds: readonly RoundResult[];
-  scenarioPool: readonly Scenario[];
 };
 
 function unavailable(label: string): string {
@@ -16,34 +15,30 @@ function unavailable(label: string): string {
  */
 export function ReasoningChain({
   rounds,
-  scenarioPool,
 }: ReasoningChainProps) {
   return (
     <section aria-label="训练记录" className="flex flex-col gap-3">
       <p className="text-[13px] font-medium text-app-muted">训练记录</p>
       <div className="flex flex-col gap-2">
         {rounds.map((round, index) => {
-          const scenario = scenarioPool.find(
-            (candidate) => candidate.id === round.scenarioId,
-          );
-          const callLabel =
-            scenario?.calls.find((call) => call.id === round.initialCall)
-              ?.label ?? round.initialCall;
-          const reasonLabels = round.reasonIds
-            .map(
-              (reasonId) =>
-                scenario?.reasonOptions.find((reason) => reason.id === reasonId)
-                  ?.label ?? reasonId,
-            )
-            .join("、");
+          const snapshot = round.scenarioSnapshot;
+          const callLabel = snapshot?.calls.find(
+            (call) => call.id === round.initialCall,
+          )?.label;
+          const finalCallLabel = snapshot?.calls.find(
+            (call) => call.id === round.finalCall,
+          )?.label;
+          const reasonLabels = snapshot
+            ? snapshot.selectedReasons.map((reason) => reason.label).join("、")
+            : null;
           const challenge = round.aiChallenge;
           const source = challenge?.source ?? round.aiResponseSource;
-          const professional = round.professionalReference ?? scenario?.professional;
+          const professional = round.professionalReference;
           const responseLabel =
             round.userResponseToChallenge === "revise"
-              ? `改判至 Call ${round.finalCall}`
+              ? `改判至 Call ${round.finalCall}${finalCallLabel ? ` · ${finalCallLabel}` : ""}`
               : round.userResponseToChallenge === "keep"
-                ? `保持 Call ${round.finalCall}`
+                ? `保持 Call ${round.finalCall}${finalCallLabel ? ` · ${finalCallLabel}` : ""}`
                 : `旧记录仅保存最终 Call ${round.finalCall}`;
 
           return (
@@ -56,7 +51,7 @@ export function ReasoningChain({
                 <span className="mr-2 font-mono text-xs text-app-muted">
                   R{index + 1}
                 </span>
-                {scenario?.title ?? round.scenarioId}
+                {snapshot?.title ?? `旧记录（Scenario ${round.scenarioId}）`}
                 <span className="ml-2 text-xs text-app-muted">查看训练记录</span>
               </summary>
               <div className="grid gap-5 pb-4 pt-2 text-[13px] leading-relaxed text-app-muted lg:grid-cols-2">
@@ -64,9 +59,12 @@ export function ReasoningChain({
                   <div>
                     <p className="font-medium text-app-text">初始判断</p>
                     <p className="mt-1">
-                      Call {round.initialCall} · {callLabel}
+                      Call {round.initialCall} · {callLabel ?? unavailable("初始 Call 快照")}
                     </p>
-                    <p>主要依据：{reasonLabels || "未保存"}</p>
+                    <p>
+                      主要依据：
+                      {reasonLabels ?? unavailable("判断理由快照")}
+                    </p>
                     <p>
                       补充理由：
                       {round.optionalFreeformReasoning || "未补充自由理由"}

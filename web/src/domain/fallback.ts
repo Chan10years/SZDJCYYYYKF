@@ -11,6 +11,7 @@ export function buildFallbackChallenge(
   scenario: Scenario,
   initialCall: CallId,
   reasonIds: ReasonId[],
+  optionalFreeformReasoning = "",
 ): ChallengeOutput {
   const labels = reasonIds
     .map((id) => scenario.reasonOptions.find((option) => option.id === id)?.label)
@@ -23,6 +24,10 @@ export function buildFallbackChallenge(
     acknowledge = `你把「${labels[0]}」作为主要依据。`;
   } else {
     acknowledge = `你主要依据「${labels[0]}」和「${labels[1]}」做出判断。`;
+  }
+  const freeformExcerpt = optionalFreeformReasoning.trim().slice(0, 160);
+  if (freeformExcerpt.length > 0) {
+    acknowledge += ` 你还补充了：「${freeformExcerpt}」。`;
   }
 
   const guidance = scenario.challengeGuidance[initialCall];

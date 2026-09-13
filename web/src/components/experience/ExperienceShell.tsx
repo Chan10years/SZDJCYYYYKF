@@ -95,6 +95,7 @@ export function ExperienceShell({
       scenarioId,
       initialCall: state.initialCall,
       reasonIds: state.reasonIds,
+      optionalFreeformReasoning: state.optionalFreeformReasoning,
     }, scenario, requestRemoteChallenge)
       .then((challenge) => {
         dispatch({ type: "CHALLENGE_RESOLVED", challenge });
@@ -110,6 +111,7 @@ export function ExperienceShell({
     state.challenge,
     state.initialCall,
     state.reasonIds,
+    state.optionalFreeformReasoning,
     state.scenarioIndex,
   ]);
 

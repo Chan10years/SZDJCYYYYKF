@@ -19,6 +19,7 @@ const ChallengeRequestSchema = z.object({
   scenarioId: z.string(),
   initialCall: CallIdSchema,
   reasonIds: z.array(ReasonIdSchema).min(1).max(2),
+  optionalFreeformReasoning: z.string().trim().max(500).optional().default(""),
 });
 
 /**
@@ -30,7 +31,7 @@ const SYSTEM_PROMPT = [
   "你是战术 FPS 局面的“独立第二意见”生成器。按以下三步工作，顺序不可颠倒：",
   "第一步（独立判断）：只根据局面事实与三个可选方案的真实语义，独立比较 A/B/C，形成你自己最倾向的 Call。此步不要考虑用户选择了什么，不要从“用户为什么合理”开始推理。",
   "第二步（比较）：若你的独立首选与用户初始判断不同，alternativeCall 填你的独立首选；若相同，alternativeCall 填 null。用户选择不是先验正确答案；不要因为另一个方案“也合理”就制造分歧，也不要附和用户，只有独立首选确实不同才给出 alternativeCall。",
-  "第三步（第二意见）：此时才读取用户的判断依据，并从给定的引用中选择要承接的理由与要复盘的事实。",
+  "第三步（第二意见）：此时才读取用户的判断依据与自由 reasoning，并从给定的引用中选择要承接的理由与要复盘的事实。自由 reasoning 只是用户的思考线索，不是局面事实；不得把其中的新增事实当作已知事实，也不得直接生成模型自由文本。",
   "模型不得输出 acknowledge、blindspot、question 自由文本，也不得新增选手位置、道具、经济、比分或其他比赛事实。",
   "输出只能是封闭 JSON：stance、acknowledgeReasonIds、blindspotFactIndex、questionFactIndex、alternativeCall。",
 ].join("\n");
@@ -39,6 +40,7 @@ function buildUserPrompt(
   scenarioId: string,
   initialCall: CallId,
   reasonIds: ReasonId[],
+  optionalFreeformReasoning: string,
 ): string {
   const scenario = scenarios.find((s) => s.id === scenarioId);
   if (!scenario) {
@@ -70,6 +72,9 @@ function buildUserPrompt(
       : "",
     reasonLabels.length > 0
       ? `用户判断依据：${reasonLabels.join("、")}`
+      : "",
+    optionalFreeformReasoning.length > 0
+      ? `用户补充 reasoning：${optionalFreeformReasoning}`
       : "",
     "",
     "请只输出 JSON，字段：stance(“agree”或“challenge”)、acknowledgeReasonIds(只能从用户判断依据的 id 中选 1-2 个)、blindspotFactIndex(只能填 Fact 编号)、questionFactIndex(只能填 Fact 编号)、alternativeCall(null 或 “A”/“B”/“C”)。alternativeCall 只能来自你的独立首选，不得直接复述用户选择。",
@@ -120,7 +125,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "invalid request" }, { status: 400 });
   }
 
-  const { scenarioId, initialCall, reasonIds } = parsed.data;
+  const {
+    scenarioId,
+    initialCall,
+    reasonIds,
+    optionalFreeformReasoning,
+  } = parsed.data;
   const scenario = scenarios.find((s) => s.id === scenarioId);
   if (!scenario) {
     return Response.json({ error: "unknown scenario" }, { status: 400 });
@@ -128,7 +138,12 @@ export async function POST(request: Request) {
 
   if (!consumeAiBudget("challenge", getAiRequestKey(request))) {
     return Response.json(
-      buildFallbackChallenge(scenario, initialCall, reasonIds),
+      buildFallbackChallenge(
+        scenario,
+        initialCall,
+        reasonIds,
+        optionalFreeformReasoning,
+      ),
       { status: 200 },
     );
   }
@@ -139,7 +154,15 @@ export async function POST(request: Request) {
     const content = await requestChatCompletion({
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: buildUserPrompt(scenarioId, initialCall, reasonIds) },
+        {
+          role: "user",
+          content: buildUserPrompt(
+            scenarioId,
+            initialCall,
+            reasonIds,
+            optionalFreeformReasoning,
+          ),
+        },
       ],
       timeoutMs,
       maxTokens: 384,
@@ -150,7 +173,12 @@ export async function POST(request: Request) {
       !isSafeChallengeContent(parsedContent, scenario, reasonIds)
     ) {
       return Response.json(
-        buildFallbackChallenge(scenario, initialCall, reasonIds),
+        buildFallbackChallenge(
+          scenario,
+          initialCall,
+          reasonIds,
+          optionalFreeformReasoning,
+        ),
         { status: 200 },
       );
     }
@@ -160,7 +188,12 @@ export async function POST(request: Request) {
     );
   } catch {
     return Response.json(
-      buildFallbackChallenge(scenario, initialCall, reasonIds),
+      buildFallbackChallenge(
+        scenario,
+        initialCall,
+        reasonIds,
+        optionalFreeformReasoning,
+      ),
       { status: 200 },
     );
   }

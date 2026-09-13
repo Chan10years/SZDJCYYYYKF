@@ -1,14 +1,11 @@
-import { scenarios } from "@/data/scenarios";
 import type {
   ConnectionStats,
   ReasonFrequencyEntry,
   RoundResult,
-  Scenario,
 } from "./types";
 
 export function calculateConnectionStats(
   rounds: RoundResult[],
-  scenarioPool: readonly Scenario[] = scenarios,
 ): ConnectionStats {
   const reasonFrequency = new Map<string, ReasonFrequencyEntry>();
 
@@ -20,9 +17,6 @@ export function calculateConnectionStats(
   let finalProfessionalAlignmentCount = 0;
 
   for (const round of rounds) {
-    const scenario = scenarioPool.find(
-      (candidate) => candidate.id === round.scenarioId,
-    );
     const hasDisagreement =
       round.aiAlternativeCall !== null &&
       round.aiAlternativeCall !== round.initialCall;
@@ -37,7 +31,7 @@ export function calculateConnectionStats(
       }
     }
 
-    if (scenario?.verificationStatus === "verified") {
+    if (round.scenarioSnapshot?.verificationStatus === "verified") {
       verifiedReferenceRounds += 1;
       if (round.initialCall === round.professionalCall) {
         initialProfessionalAlignmentCount += 1;

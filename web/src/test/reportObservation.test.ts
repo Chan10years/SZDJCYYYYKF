@@ -8,6 +8,20 @@ import { calculateConnectionStats } from "@/domain/stats";
 import { realScenarios } from "@/data/scenarios.real";
 import type { CallId, RoundResult } from "@/domain/types";
 
+function snapshotFor(
+  scenario: (typeof realScenarios)[number],
+  reasonIds: RoundResult["reasonIds"],
+) {
+  return {
+    title: scenario.title,
+    verificationStatus: scenario.verificationStatus,
+    calls: scenario.calls.map((call) => ({ ...call })),
+    selectedReasons: reasonIds.map((reasonId) => ({
+      ...scenario.reasonOptions.find((reason) => reason.id === reasonId)!,
+    })),
+  };
+}
+
 // 会话 1：2 次分歧，1 采纳 1 坚持（mixed），使用已核验 Scenario。
 function makeMixedRounds(): RoundResult[] {
   return [
@@ -40,6 +54,7 @@ function makeRound(
         : initialCall;
   return {
     scenarioId: realScenarios[0].id,
+    scenarioSnapshot: snapshotFor(realScenarios[0], ["resource_preservation"]),
     initialCall,
     reasonIds: ["resource_preservation"],
     aiStance: alternativeCall === null ? "agree" : "challenge",
@@ -101,6 +116,7 @@ describe("eligibleObservationIds", () => {
     const practiceRound = {
       ...makeRound("A", null, true),
       scenarioId: realScenarios[2].id,
+      scenarioSnapshot: snapshotFor(realScenarios[2], ["resource_preservation"]),
     };
     const stats = calculateConnectionStats([practiceRound]);
     const ids = eligibleObservationIds(stats);

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type { RoundResult } from "@/domain/types";
-import { scenarios } from "@/data/scenarios";
 import { calculateConnectionStats } from "@/domain/stats";
 import { buildFallbackReport } from "@/domain/fallback";
 import { OBSERVATION_CANDIDATES } from "@/domain/reportObservation";
@@ -18,6 +17,7 @@ import { Num } from "@/components/layout/MetadataStrip";
 type ConnectionReportScreenProps = {
   rounds: RoundResult[];
   onReset: () => void;
+  /** 保留调用方兼容性；历史报告只读取 RoundResult 快照。 */
   scenarioPool?: readonly Scenario[];
   requestRemoteReport?: boolean;
 };
@@ -54,10 +54,9 @@ function ObservationGlyph() {
 export function ConnectionReportScreen({
   rounds,
   onReset,
-  scenarioPool = scenarios,
   requestRemoteReport = true,
 }: ConnectionReportScreenProps) {
-  const stats = calculateConnectionStats(rounds, scenarioPool);
+  const stats = calculateConnectionStats(rounds);
   const [observation, setObservation] = useState<Observation | null>(null);
 
   // 本次记录与统计一旦确定，立即异步获取行为观察；任何失败都回退到确定性文本。
@@ -119,6 +118,19 @@ export function ConnectionReportScreen({
   const topReasons = stats.reasonFrequency
     .filter((entry) => entry.count > 0)
     .sort((a, b) => b.count - a.count);
+  const historicalReasonLabels = new Map<string, string>();
+  const historicalRoundLabels = new Map<string, string>();
+  rounds.forEach((round, index) => {
+    if (!historicalRoundLabels.has(round.scenarioId)) {
+      historicalRoundLabels.set(round.scenarioId, `R${index + 1}`);
+    }
+    round.scenarioSnapshot?.selectedReasons.forEach((reason) => {
+      historicalReasonLabels.set(
+        `${round.scenarioId}:${reason.id}`,
+        reason.label,
+      );
+    });
+  });
 
   // 两个核心数字：直接回答产品的两个核心问题。
   // 指标一：AI 分歧后发生调整的比例；分母为 0 时不得显示 0%，改用安全文案。
@@ -161,12 +173,12 @@ export function ConnectionReportScreen({
             {trajectoryHeading}
           </p>
           <div className="mt-4">
-            <ConnectionTrajectory rounds={rounds} scenarioPool={scenarioPool} />
+            <ConnectionTrajectory rounds={rounds} />
           </div>
         </section>
 
         <section className="mt-6 border-t border-app-line pt-5">
-          <ReasoningChain rounds={rounds} scenarioPool={scenarioPool} />
+          <ReasoningChain rounds={rounds} />
         </section>
 
         {/* 关键观察：两个核心数字（轨迹之后的第二视觉高潮） */}
@@ -220,17 +232,14 @@ export function ConnectionReportScreen({
             <p className="mt-5 text-[12px] leading-relaxed text-app-muted">
               依据使用：
               {topReasons.map(({ scenarioId, reasonId, count }, i) => {
-                const scenario = scenarioPool.find((item) => item.id === scenarioId);
-                const label = scenario?.reasonOptions.find(
-                  (reason) => reason.id === reasonId,
-                )?.label ?? reasonId;
-                const roundLabel = scenario
-                  ? `R${scenarioPool.indexOf(scenario) + 1} `
-                  : "";
+                const label =
+                  historicalReasonLabels.get(`${scenarioId}:${reasonId}`) ??
+                  `旧记录未保存（${reasonId}）`;
+                const roundLabel = historicalRoundLabels.get(scenarioId);
                 return (
                 <span key={`${scenarioId}:${reasonId}`}>
                   {i > 0 ? " · " : ""}
-                  {roundLabel}{label} <Num>×{count}</Num>
+                  {roundLabel ? `${roundLabel} ` : ""}{label} <Num>×{count}</Num>
                 </span>
                 );
               })}

@@ -156,8 +156,17 @@ export const ChallengeOutputSchema = z.object({
   source: z.enum(["live", "fallback"]),
 });
 
+/** 完成回合时保存的 Scenario 语义快照，报告不得用当前 Scenario 回填。 */
+export const RoundScenarioSnapshotSchema = z.object({
+  title: z.string(),
+  verificationStatus: ScenarioVerificationStatusSchema,
+  calls: z.array(CallOptionSchema).length(3),
+  selectedReasons: z.array(ReasonOptionSchema).min(1).max(2),
+});
+
 export const RoundResultSchema = z.object({
   scenarioId: z.string(),
+  scenarioSnapshot: RoundScenarioSnapshotSchema.optional(),
   initialCall: CallIdSchema,
   reasonIds: z.array(ReasonIdSchema).min(1).max(2),
   optionalFreeformReasoning: z.string().trim().max(500).optional(),

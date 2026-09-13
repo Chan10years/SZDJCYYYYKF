@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { requestChallengeOnClient } from "@/lib/challengeClient";
 import { scenarios } from "@/data/scenarios";
+import { buildFallbackChallenge } from "@/domain/fallback";
 
 const scenario = scenarios[0];
 
@@ -27,6 +28,27 @@ describe("requestChallengeOnClient", () => {
     expect(result.alternativeCall).toBe(
       scenario.challengeGuidance.A.alternativeCall,
     );
+  });
+
+  it("sends freeform reasoning to the Challenge request", async () => {
+    const freeform = "我会先确认空间，再决定是否提速。";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => buildFallbackChallenge(scenario, "A", ["known_position"]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await requestChallengeOnClient({
+      scenarioId: scenario.id,
+      initialCall: "A",
+      reasonIds: ["known_position"],
+      optionalFreeformReasoning: freeform,
+    } as Parameters<typeof requestChallengeOnClient>[0]);
+
+    const [, init] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      optionalFreeformReasoning: freeform,
+    });
   });
 
   it("returns fallback when the browser request never settles by the deadline", async () => {

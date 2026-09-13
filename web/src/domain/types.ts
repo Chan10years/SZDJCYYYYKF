@@ -5,6 +5,7 @@ import {
   ChallengeOutputSchema,
   ExperiencePhaseSchema,
   ReasonIdSchema,
+  RoundScenarioSnapshotSchema,
   RoundResultSchema,
   ScenarioSchema,
   ScenarioVerificationStatusSchema,
@@ -14,6 +15,7 @@ export type Scenario = z.infer<typeof ScenarioSchema>;
 export type ChallengeOutput = z.infer<typeof ChallengeOutputSchema>;
 export type ChallengeResponse = z.infer<typeof ChallengeResponseSchema>;
 export type RoundResult = z.infer<typeof RoundResultSchema>;
+export type RoundScenarioSnapshot = z.infer<typeof RoundScenarioSnapshotSchema>;
 export type CallId = z.infer<typeof CallIdSchema>;
 export type ReasonId = z.infer<typeof ReasonIdSchema>;
 export type ExperiencePhase = z.infer<typeof ExperiencePhaseSchema>;

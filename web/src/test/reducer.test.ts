@@ -168,6 +168,9 @@ describe("experienceReducer", () => {
     expect(round.aiResponseSource).toBe("fallback");
     expect(round.finalCall).toBe("A");
     expect(round.changedAfterAI).toBe(false);
+    expect(
+      (round as typeof round & { scenarioSnapshot?: unknown }).scenarioSnapshot,
+    ).toBeDefined();
     expect(s.phase).toBe("situation");
     expect(s.scenarioIndex).toBe(1);
   });

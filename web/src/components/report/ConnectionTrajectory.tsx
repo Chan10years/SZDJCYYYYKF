@@ -1,7 +1,6 @@
 "use client";
 
-import type { CallId, RoundResult, Scenario } from "@/domain/types";
-import { scenarios } from "@/data/scenarios";
+import type { CallId, RoundResult } from "@/domain/types";
 import { getScenarioStatusCopy } from "@/domain/scenarioStatus";
 import { getAiSourceLabel } from "@/domain/aiSource";
 
@@ -21,13 +20,11 @@ type Row = {
 
 function toTrajectoryRows(
   rounds: RoundResult[],
-  scenarioPool: readonly Scenario[],
 ): Row[] {
   return rounds.map((round, index) => {
-    const scenario = scenarioPool.find((s) => s.id === round.scenarioId);
-    const statusCopy = getScenarioStatusCopy(
-      scenario?.verificationStatus ?? "draft",
-    );
+    const statusCopy = round.scenarioSnapshot
+      ? getScenarioStatusCopy(round.scenarioSnapshot.verificationStatus)
+      : { shortLabel: "历史状态未知" };
     const hasDisagreement =
       round.aiAlternativeCall !== null &&
       round.aiAlternativeCall !== round.initialCall;
@@ -46,8 +43,7 @@ function toTrajectoryRows(
       status,
       professionalLabel:
         round.professionalReference?.pathLabel ??
-        scenario?.professional.pathLabel ??
-        "职业路径参考",
+        "旧记录未保存参考路径",
       referenceLabel: statusCopy.shortLabel,
     };
   });
@@ -112,12 +108,10 @@ function StatusChip({ status }: { status: RowStatus }) {
  */
 export function ConnectionTrajectory({
   rounds,
-  scenarioPool = scenarios,
 }: {
   rounds: RoundResult[];
-  scenarioPool?: readonly Scenario[];
 }) {
-  const rows = toTrajectoryRows(rounds, scenarioPool);
+  const rows = toTrajectoryRows(rounds);
 
   return (
     <section aria-label="连接轨迹" className="flex flex-col">

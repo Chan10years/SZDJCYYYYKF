@@ -120,10 +120,18 @@ describe("POST /api/challenge — 独立第二意见", () => {
       scenarioId: scenario.id,
       initialCall: "A",
       reasonIds,
+      optionalFreeformReasoning: "我会先确认空间，再决定是否提速。",
     });
-    await expect(response.json()).resolves.toEqual(
-      buildFallbackChallenge(scenario, "A", reasonIds),
-    );
+    const result = await response.json();
+    const expected = buildFallbackChallenge(scenario, "A", reasonIds);
+    expect(result).toMatchObject({
+      stance: expected.stance,
+      blindspot: expected.blindspot,
+      question: expected.question,
+      alternativeCall: expected.alternativeCall,
+      source: "fallback",
+    });
+    expect(result.acknowledge).toContain("我会先确认空间，再决定是否提速。");
   });
 
   it.each([
@@ -229,8 +237,16 @@ describe("POST /api/challenge — Prompt 组装", () => {
     mockedCompletion.mockResolvedValue(liveJson(null, "agree"));
   });
 
-  async function captureUserPrompt(initialCall: CallId): Promise<string> {
-    await post({ scenarioId: scenario.id, initialCall, reasonIds });
+  async function captureUserPrompt(
+    initialCall: CallId,
+    optionalFreeformReasoning?: string,
+  ): Promise<string> {
+    await post({
+      scenarioId: scenario.id,
+      initialCall,
+      reasonIds,
+      optionalFreeformReasoning,
+    });
     const messages = mockedCompletion.mock.calls[0][0].messages;
     const user = messages.find((m) => m.role === "user");
     return user?.content ?? "";
@@ -248,6 +264,16 @@ describe("POST /api/challenge — Prompt 组装", () => {
     const prompt = await captureUserPrompt("A");
     expect(prompt.indexOf("可选方案")).toBeLessThan(
       prompt.indexOf("用户初始判断"),
+    );
+  });
+
+  it("用户自由 reasoning 进入 Challenge Prompt 的第二意见上下文", async () => {
+    const freeform = "我会先确认空间，再决定是否提速。";
+    const prompt = await captureUserPrompt("A", freeform);
+
+    expect(prompt).toContain(`用户补充 reasoning：${freeform}`);
+    expect(prompt.indexOf("可选方案")).toBeLessThan(
+      prompt.indexOf("用户补充 reasoning"),
     );
   });
 

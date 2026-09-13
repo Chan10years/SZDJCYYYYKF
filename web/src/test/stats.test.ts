@@ -3,9 +3,21 @@ import { calculateConnectionStats } from "@/domain/stats";
 import type { RoundResult } from "@/domain/types";
 import { scenarios } from "@/data/scenarios";
 
+function snapshotFor(scenario: (typeof scenarios)[number], reasonIds: RoundResult["reasonIds"]) {
+  return {
+    title: scenario.title,
+    verificationStatus: scenario.verificationStatus,
+    calls: scenario.calls.map((call) => ({ ...call })),
+    selectedReasons: reasonIds.map((reasonId) => ({
+      ...scenario.reasonOptions.find((reason) => reason.id === reasonId)!,
+    })),
+  };
+}
+
 const rounds: RoundResult[] = [
   {
     scenarioId: scenarios[0].id,
+    scenarioSnapshot: snapshotFor(scenarios[0], ["known_position"]),
     initialCall: "A",
     reasonIds: ["known_position"],
     aiStance: "challenge",
@@ -18,6 +30,7 @@ const rounds: RoundResult[] = [
   },
   {
     scenarioId: scenarios[1].id,
+    scenarioSnapshot: snapshotFor(scenarios[1], ["numbers_advantage", "time_pressure"]),
     initialCall: "B",
     reasonIds: ["numbers_advantage", "time_pressure"],
     aiStance: "challenge",
@@ -30,6 +43,7 @@ const rounds: RoundResult[] = [
   },
   {
     scenarioId: scenarios[2].id,
+    scenarioSnapshot: snapshotFor(scenarios[2], ["resource_preservation"]),
     initialCall: "C",
     reasonIds: ["resource_preservation"],
     aiStance: "agree",

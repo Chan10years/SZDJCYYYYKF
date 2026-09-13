@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { ConnectionReportScreen } from "@/components/experience/ConnectionReportScreen";
+import { experienceReducer, initialState } from "@/domain/experienceReducer";
 import { OBSERVATION_CANDIDATES } from "@/domain/reportObservation";
 import { scenarios } from "@/data/scenarios";
-import type { RoundResult } from "@/domain/types";
+import type { RoundResult, Scenario } from "@/domain/types";
 
 function round(partial: Partial<RoundResult> & { scenarioId: string }): RoundResult {
   return {
@@ -20,9 +21,34 @@ function round(partial: Partial<RoundResult> & { scenarioId: string }): RoundRes
   };
 }
 
+function scenarioSnapshotFor(
+  scenario: Scenario,
+  reasonIds: RoundResult["reasonIds"],
+) {
+  return {
+    title: scenario.title,
+    verificationStatus: scenario.verificationStatus,
+    calls: scenario.calls.map((call) => ({ ...call })),
+    selectedReasons: reasonIds.map((reasonId) => ({
+      ...scenario.reasonOptions.find((reason) => reason.id === reasonId)!,
+    })),
+  };
+}
+
+function recordedRound(
+  scenario: Scenario,
+  partial: Partial<RoundResult> & { scenarioId: string },
+): RoundResult {
+  const result = round(partial);
+  return {
+    ...result,
+    scenarioSnapshot: scenarioSnapshotFor(scenario, result.reasonIds),
+  };
+}
+
 /** 丰富状态：R1 分歧+坚持，R2 分歧+调整，R3 一致。 */
 const richRounds: RoundResult[] = [
-  round({
+  recordedRound(scenarios[0], {
     scenarioId: scenarios[0].id,
     initialCall: "A",
     aiStance: "challenge",
@@ -30,7 +56,7 @@ const richRounds: RoundResult[] = [
     finalCall: "A",
     professionalCall: scenarios[0].professional.call,
   }),
-  round({
+  recordedRound(scenarios[1], {
     scenarioId: scenarios[1].id,
     initialCall: "C",
     aiStance: "challenge",
@@ -39,7 +65,7 @@ const richRounds: RoundResult[] = [
     changedAfterAI: true,
     professionalCall: scenarios[1].professional.call,
   }),
-  round({
+  recordedRound(scenarios[2], {
     scenarioId: scenarios[2].id,
     initialCall: "B",
     finalCall: "B",
@@ -49,7 +75,7 @@ const richRounds: RoundResult[] = [
 
 /** 全部一致状态：AI 未提出任何不同方向。 */
 const agreeRounds: RoundResult[] = scenarios.map((s, i) =>
-  round({
+  recordedRound(s, {
     scenarioId: s.id,
     initialCall: (["A", "B", "C"] as const)[i],
     finalCall: (["A", "B", "C"] as const)[i],
@@ -63,14 +89,15 @@ const gate1PracticeScenario = {
   verificationStatus: "practice" as const,
 };
 
-const gate1PracticeRound = round({
+const gate1PracticeRound = recordedRound(gate1PracticeScenario, {
   scenarioId: gate1PracticeScenario.id,
   initialCall: "A",
   finalCall: "A",
   professionalCall: "A",
+  professionalReference: gate1PracticeScenario.professional,
 });
 
-const richReasoningRound = round({
+const richReasoningRound = recordedRound(scenarios[0], {
   scenarioId: scenarios[0].id,
   initialCall: "A",
   aiStance: "challenge",
@@ -93,6 +120,38 @@ const richReasoningRound = round({
   nextTrainingHypothesis: "下一次先检查关键条件。",
 });
 
+function cloneScenario(scenario: Scenario): Scenario {
+  return JSON.parse(JSON.stringify(scenario)) as Scenario;
+}
+
+function completeRoundForScenario(scenario: Scenario): RoundResult {
+  const completed = experienceReducer(
+    {
+      ...initialState,
+      phase: "review",
+      scenarioIndex: 0,
+      initialCall: "A",
+      reasonIds: ["known_position"],
+      challenge: {
+        stance: "challenge",
+        acknowledge: "记录中的承接。",
+        blindspot: "记录中的盲点。",
+        question: "记录中的反问。",
+        alternativeCall: "B",
+        source: "fallback",
+      },
+      finalCall: "A",
+    },
+    { type: "COMPLETE_ROUND" },
+    [scenario],
+  );
+  const recorded = completed.completedRounds[0];
+  if (!recorded) {
+    throw new Error("Expected a completed round");
+  }
+  return recorded;
+}
+
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
@@ -111,6 +170,81 @@ afterEach(() => {
 });
 
 describe("ConnectionReportScreen — 两个核心数字", () => {
+  it("keeps a completed reasoning chain stable after the same Scenario is edited", () => {
+    const scenarioAtCompletion = cloneScenario(scenarios[0]);
+    const recorded = completeRoundForScenario(scenarioAtCompletion);
+    const originalTitle = scenarioAtCompletion.title;
+    const originalCallLabel = scenarioAtCompletion.calls[0].label;
+    const originalReasonLabel = scenarioAtCompletion.reasonOptions.find(
+      (reason) => reason.id === "known_position",
+    )?.label;
+    const originalOutcome = scenarioAtCompletion.professional.outcome;
+
+    scenarioAtCompletion.title = "后续改写的 Scenario 标题";
+    scenarioAtCompletion.calls = scenarioAtCompletion.calls.map((call) =>
+      call.id === "A"
+        ? { ...call, label: "后续改写的 Call", description: "后续改写的方案语义" }
+        : call,
+    );
+    scenarioAtCompletion.reasonOptions = scenarioAtCompletion.reasonOptions.map(
+      (reason) =>
+        reason.id === "known_position"
+          ? { ...reason, label: "后续改写的理由" }
+          : reason,
+    );
+    scenarioAtCompletion.professional = {
+      ...scenarioAtCompletion.professional,
+      pathLabel: "后续改写的职业路径",
+      outcome: "后续改写的职业结果",
+      observations: ["后续改写的观察"],
+    };
+    scenarioAtCompletion.verificationStatus = "draft";
+
+    render(
+      <ConnectionReportScreen
+        rounds={[recorded]}
+        scenarioPool={[scenarioAtCompletion]}
+        requestRemoteReport={false}
+        onReset={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(originalTitle)).toBeInTheDocument();
+    expect(screen.getAllByText(originalCallLabel, { exact: false }).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(originalReasonLabel ?? "", { exact: false }).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText(originalOutcome)).toBeInTheDocument();
+    expect(screen.getAllByText(/职业 C/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("后续改写的 Scenario 标题")).not.toBeInTheDocument();
+    expect(screen.queryByText("后续改写的 Call")).not.toBeInTheDocument();
+    expect(screen.queryByText("后续改写的理由")).not.toBeInTheDocument();
+    expect(screen.queryByText("后续改写的职业结果")).not.toBeInTheDocument();
+  });
+
+  it("does not backfill missing historical Professional Reference from the current Scenario", () => {
+    const currentScenario = cloneScenario(scenarios[0]);
+    currentScenario.professional = {
+      ...currentScenario.professional,
+      pathLabel: "当前 Scenario 的职业路径",
+      outcome: "当前 Scenario 的职业结果",
+      observations: ["当前 Scenario 的观察"],
+    };
+
+    render(
+      <ConnectionReportScreen
+        rounds={[round({ scenarioId: scenarios[0].id })]}
+        scenarioPool={[currentScenario]}
+        requestRemoteReport={false}
+        onReset={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/旧记录未保存 参考路径/)).toBeInTheDocument();
+    expect(screen.queryByText("当前 Scenario 的职业路径")).not.toBeInTheDocument();
+    expect(screen.queryByText("当前 Scenario 的职业结果")).not.toBeInTheDocument();
+  });
+
   it("shows the saved initial reasoning, exact Challenge, response reason, and next check", () => {
     render(
       <ConnectionReportScreen
