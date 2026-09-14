@@ -4,6 +4,7 @@ import {
   getSelectableRound,
   MAX_DEMO_FILE_SIZE_BYTES,
   type DemoImportInspection,
+  type DemoImportRound,
   type DemoImportStatus,
 } from "@/domain/demoImport";
 import {
@@ -141,11 +142,41 @@ function workerSelectionInput(
   baseInput: DemoParserInspectionInput,
   roundNumber: number,
   requestedTick: number,
+  round: DemoImportRound,
 ): DemoParserSelectionInput {
   const message = asRecord(messageInput);
   const raw = asRecord(message.raw);
-  const actualTick =
-    typeof message.actualTick === "number" ? message.actualTick : requestedTick;
+  const actualTickValue = message.actualTick;
+  if (typeof actualTickValue !== "number") {
+    throw new LocalParserUnsupportedError(
+      "浏览器本地 parser 未提供可信的实际 tick；已拒绝该截点。",
+    );
+  }
+  const actualTick = actualTickValue;
+  if (!Number.isInteger(actualTick)) {
+    throw new LocalParserUnsupportedError(
+      "浏览器本地 parser 返回了无效的实际 tick；已拒绝该截点。",
+    );
+  }
+  if (actualTick > requestedTick) {
+    throw new LocalParserUnsupportedError(
+      `浏览器本地 parser 返回了未来 sample tick ${actualTick}，请求 tick 是 ${requestedTick}；已拒绝该截点。`,
+    );
+  }
+  if (actualTick !== requestedTick) {
+    throw new LocalParserUnsupportedError(
+      `浏览器本地 parser 返回的 sample tick ${actualTick} 与请求 tick ${requestedTick} 不一致；已拒绝该截点。`,
+    );
+  }
+  if (
+    actualTick < round.minSelectableTick ||
+    actualTick > round.maxSelectableTick ||
+    actualTick % (round.tickStep ?? 1) !== 0
+  ) {
+    throw new LocalParserUnsupportedError(
+      "浏览器本地 parser 返回的实际 tick 不在可信可选范围内；已拒绝该截点。",
+    );
+  }
   return {
     ...baseInput,
     roundNumber,
@@ -296,8 +327,14 @@ export class DemoImportClient {
         loaded.baseInput,
         roundNumber,
         tick,
+        round,
       );
       const normalizedMatchState = buildDemoImportNormalizedState(selectionInput);
+      this.emit({
+        status: "ready",
+        message: "所选 Round / Tick 已在浏览器本地恢复。",
+        mode: "browser-local",
+      });
       return { normalizedMatchState, mode: "browser-local" };
     } catch (error) {
       if (error instanceof DemoImportCancelledError) {

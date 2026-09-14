@@ -306,12 +306,15 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
     return getSelectableRound(inspection, selectedRoundNumber);
   }, [inspection, selectedRoundNumber]);
 
+  const selectedTickStep = selectedRound?.tickStep ?? 1;
+  const selectedTickIsAligned =
+    selectedRound !== null && selectedTick % selectedTickStep === 0;
   const selectedTickIsValid =
     selectedRound !== null &&
     Number.isInteger(selectedTick) &&
     selectedTick >= selectedRound.minSelectableTick &&
-    selectedTick <= selectedRound.maxSelectableTick;
-  const selectedTickStep = selectedRound?.tickStep ?? 1;
+    selectedTick <= selectedRound.maxSelectableTick &&
+    selectedTickIsAligned;
 
   const visibleMarkers = useMemo(() => {
     if (!inspection || !selectedRound || !selectedTickIsValid) return [];
@@ -341,6 +344,11 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
       );
       const nextDraft = buildScenarioDraft(result.normalizedMatchState);
       setDraft(nextDraft);
+      setProgress({
+        status: "ready",
+        message: "所选 Round / Tick 已恢复，可继续 Human QA。",
+        mode: "browser-local",
+      });
       setApprovedChecks(new Set());
       setPracticeScenario(null);
       setPracticeCurrentState(null);
@@ -499,7 +507,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
           <div className="flex flex-col gap-2">
             <h1 className="text-2xl font-semibold leading-tight text-app-text lg:text-3xl">导入一场 Demo，开始复盘。</h1>
             <p className="max-w-2xl text-sm leading-relaxed text-app-muted">
-              选择或拖入一场新的 CS2 <span className="font-mono text-app-text">.dem</span>。系统恢复可验证的比赛事实、Round 与任意 tick；你选择截点后，再由 Human QA 补齐真正的战术语义。
+              选择或拖入一场新的 CS2 <span className="font-mono text-app-text">.dem</span>。系统恢复可验证的比赛事实、Round 与 parser 支持的采样 tick；你选择截点后，再由 Human QA 补齐真正的战术语义。
             </p>
           </div>
         </header>
@@ -603,7 +611,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
 
               <section aria-labelledby="tick-picker-heading" className="flex flex-col gap-4">
                 <div>
-                  <h3 id="tick-picker-heading" className="text-base font-semibold text-app-text">R{selectedRound.number} · 任意时间截点</h3>
+                  <h3 id="tick-picker-heading" className="text-base font-semibold text-app-text">R{selectedRound.number} · 采样时间截点</h3>
                   <p className="mt-1 text-xs leading-relaxed text-app-muted">范围从 freeze end 开始，到 Round 结束前一个 tick。Round 结果不会成为可选状态；当前 parser 的可选 tick 间隔为 {selectedTickStep}。</p>
                 </div>
                 <div className="flex flex-col gap-2 rounded-lg border border-app-line bg-app-surface px-4 py-4">
@@ -641,7 +649,13 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
                       className="h-9 w-36 rounded-md border border-app-line bg-transparent px-2 text-right font-mono text-sm text-app-text outline-none focus:border-app-user"
                     />
                   </label>
-                  {!selectedTickIsValid && <p className="text-xs text-[#d06a6c]">tick 必须在当前 Round 的可选范围内。</p>}
+                  {!selectedTickIsValid && (
+                    <p className="text-xs text-[#d06a6c]">
+                      {!selectedTickIsAligned
+                        ? `tick 必须对齐当前 parser 的 ${selectedTickStep} tick 采样间隔。`
+                        : "tick 必须在当前 Round 的可选范围内。"}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-2">
@@ -658,7 +672,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
                           key={`${marker.kind}-${marker.tick}`}
                           type="button"
                           data-testid={`demo-marker-${marker.tick}`}
-                          onClick={() => setSelectedTick(Math.min(selectedRound.maxSelectableTick, Math.max(selectedRound.minSelectableTick, Math.ceil(marker.tick / selectedTickStep) * selectedTickStep)))}
+                          onClick={() => setSelectedTick(Math.min(selectedRound.maxSelectableTick, Math.max(selectedRound.minSelectableTick, Math.floor(marker.tick / selectedTickStep) * selectedTickStep)))}
                           className="rounded-full border border-app-line px-2.5 py-1.5 text-[11px] text-app-muted hover:border-app-muted hover:text-app-text"
                         >
                           {marker.label} · <span className="font-mono">{marker.tick}</span>

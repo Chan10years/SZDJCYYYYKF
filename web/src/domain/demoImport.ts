@@ -256,6 +256,12 @@ export function assertSelectableTick(
       `tick must be inside the selectable range ${round.minSelectableTick}..${round.maxSelectableTick}`,
     );
   }
+  const tickStep = round.tickStep ?? 1;
+  if (tick % tickStep !== 0) {
+    throw new Error(
+      `tick must align to the parser sample interval of ${tickStep}`,
+    );
+  }
   return tick;
 }
 

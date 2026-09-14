@@ -50,7 +50,7 @@
 2. Implement a single active-session Worker protocol:
    - `load` transfers the selected File bytes and computes provenance;
    - `inspect` parses header/roster/round ranges/events;
-   - `select` accepts any tick inside the selected Round's legal range and parses that exact tick on demand;
+   - `select` accepts only parser-sample-aligned ticks inside the selected Round's legal range and parses that exact sampled tick on demand;
    - `reset` releases the in-memory bytes and terminates the session.
 3. Keep parser output behind Zod parsing before it reaches React. The Worker must never return a stale fixture when a parse fails.
 4. Expose a promise/callback client with progress and a structured error state suitable for the UI.

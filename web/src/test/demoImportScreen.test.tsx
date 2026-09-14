@@ -7,7 +7,10 @@ import {
   type DemoParserInspectionInput,
 } from "@/domain/demoImportAdapter";
 import { DemoImportScreen } from "@/components/import/DemoImportScreen";
-import type { DemoImportClientLike } from "@/lib/demoImportClient";
+import type {
+  DemoImportClientLike,
+  DemoImportProgress,
+} from "@/lib/demoImportClient";
 
 const SHA = "B".repeat(64);
 
@@ -75,11 +78,20 @@ function fillById(id: string, value: string) {
   fireEvent.change(field, { target: { value } });
 }
 
-function makeClient(): DemoImportClientLike {
+function makeClient(
+  onProgress?: (progress: DemoImportProgress) => void,
+): DemoImportClientLike {
   const { inspection, normalizedMatchState } = makeData();
   return {
     load: vi.fn(async () => ({ inspection, mode: "browser-local" as const })),
-    select: vi.fn(async () => ({ normalizedMatchState, mode: "browser-local" as const })),
+    select: vi.fn(async () => {
+      onProgress?.({
+        status: "parsing",
+        message: "正在浏览器本地恢复所选 tick…",
+        mode: "browser-local",
+      });
+      return { normalizedMatchState, mode: "browser-local" as const };
+    }),
     reset: vi.fn(),
     cancel: vi.fn(),
   };
@@ -88,8 +100,7 @@ function makeClient(): DemoImportClientLike {
 describe("DemoImportScreen", () => {
   it("supports a new file, arbitrary tick selection, machine-only Draft, and Human QA promotion", async () => {
     const user = userEvent.setup();
-    const client = makeClient();
-    render(<DemoImportScreen clientFactory={() => client} />);
+    render(<DemoImportScreen clientFactory={(onProgress) => makeClient(onProgress)} />);
 
     const input = screen.getByTestId("demo-import-input");
     await user.upload(input, new File([new Uint8Array(15)], "new-user.dem"));
@@ -102,6 +113,7 @@ describe("DemoImportScreen", () => {
     await user.click(screen.getByTestId("demo-restore-state"));
 
     expect(await screen.findByTestId("demo-import-draft")).toBeInTheDocument();
+    expect(screen.queryByTestId("demo-import-cancel")).not.toBeInTheDocument();
     expect(screen.getByText("machine-only · draft")).toBeInTheDocument();
     expect(screen.getByTestId("demo-qa-approve")).toBeDisabled();
 

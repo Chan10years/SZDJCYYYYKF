@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DemoImportClient } from "@/lib/demoImportClient";
+import {
+  DemoImportClient,
+  type DemoImportProgress,
+} from "@/lib/demoImportClient";
 
 const SHA = "A".repeat(64);
 
-function makeRaw() {
+function makeRaw(selectionTickStep?: number) {
   const players = Array.from({ length: 10 }, (_, index) => ({
     steamid: String(index + 1),
     name: `player-${index + 1}`,
@@ -63,13 +66,19 @@ function makeRaw() {
     killEvents: [],
     bombEvents: [],
     tickRows: players,
+    ...(selectionTickStep ? { selectionTickStep } : {}),
   };
 }
 
 class FakeWorker {
   private listeners = new Set<(event: MessageEvent) => void>();
   terminated = false;
-  constructor(private readonly failLoad = false) {}
+  constructor(
+    private readonly failLoad = false,
+    private readonly selectionActualTick: number | undefined = undefined,
+    private readonly selectionTickStep: number | undefined = undefined,
+    private readonly includeActualTick = true,
+  ) {}
 
   addEventListener(type: string, listener: (event: MessageEvent) => void) {
     if (type === "message") this.listeners.add(listener);
@@ -88,15 +97,24 @@ class FakeWorker {
           this.emit({ type: "error", code: "unsupported" });
           return;
         }
-        const raw = makeRaw();
-        this.emit({ type: "inspection", fileName: "new-match.dem", fileSize: 15, demoSha256: SHA, raw });
+        const raw = makeRaw(this.selectionTickStep);
+        this.emit({
+          type: "inspection",
+          fileName: "new-match.dem",
+          fileSize: 15,
+          demoSha256: SHA,
+          selectionTickStep: this.selectionTickStep,
+          raw,
+        });
       } else if (message.type === "select") {
-        const raw = makeRaw();
+        const raw = makeRaw(this.selectionTickStep);
+        const actualTick = this.selectionActualTick ?? message.tick;
         this.emit({
           type: "selection",
           roundNumber: message.roundNumber,
-          tick: message.tick,
-          raw: { ...raw, roundNumber: message.roundNumber, tick: message.tick },
+          requestedTick: message.tick,
+          ...(this.includeActualTick ? { actualTick } : {}),
+          raw: { ...raw, roundNumber: message.roundNumber, tick: actualTick },
         });
       }
     });
@@ -124,7 +142,7 @@ class StalledWorker extends FakeWorker {
 }
 
 describe("DemoImportClient", () => {
-  it("loads a new Demo locally and requests an arbitrary exact tick", async () => {
+  it("loads a new Demo locally and requests a valid exact tick", async () => {
     const client = new DemoImportClient({
       workerFactory: () => new FakeWorker(),
     });
@@ -147,6 +165,46 @@ describe("DemoImportClient", () => {
     await expect(
       client.load(new File([new Uint8Array(15)], "new-match.dem")),
     ).rejects.toThrow(/本地|上传|支持/);
+  });
+
+  it("rejects a non-aligned tick before the worker can sample it", async () => {
+    const client = new DemoImportClient({
+      workerFactory: () => new FakeWorker(false, undefined, 4),
+    });
+
+    await client.load(new File([new Uint8Array(15)], "sampled.dem"));
+    await expect(client.select(1, 5555)).rejects.toThrow(/interval/);
+  });
+
+  it("rejects a worker sample that would move past the requested tick", async () => {
+    const client = new DemoImportClient({
+      workerFactory: () => new FakeWorker(false, 5556),
+    });
+
+    await client.load(new File([new Uint8Array(15)], "future-sample.dem"));
+    await expect(client.select(1, 5555)).rejects.toThrow(/未来|请求 tick/i);
+  });
+
+  it("rejects a selection without an explicit actual tick", async () => {
+    const client = new DemoImportClient({
+      workerFactory: () => new FakeWorker(false, undefined, undefined, false),
+    });
+
+    await client.load(new File([new Uint8Array(15)], "missing-tick.dem"));
+    await expect(client.select(1, 5555)).rejects.toThrow(/实际 tick/);
+  });
+
+  it("emits a non-running progress state after the selected tick is restored", async () => {
+    const progress: DemoImportProgress[] = [];
+    const client = new DemoImportClient({
+      workerFactory: () => new FakeWorker(),
+      onProgress: (next) => progress.push(next),
+    });
+
+    await client.load(new File([new Uint8Array(15)], "complete.dem"));
+    await client.select(1, 5555);
+
+    expect(progress.at(-1)).toMatchObject({ status: "ready" });
   });
 
   it("terminates a stalled local parser at the timeout boundary", async () => {

@@ -160,6 +160,37 @@ describe("demoparser2 output adapter", () => {
     expect(state.time.semantics).toBe("post_plant_elapsed");
   });
 
+  it("does not fold a bomb event across the next sampled tick boundary", () => {
+    const state = buildDemoImportNormalizedState(
+      selectionInput({
+        tick: 5555,
+        bombEvents: [
+          {
+            event_name: "bomb_planted",
+            tick: 5556,
+            game_time: 169.015625,
+          },
+        ],
+      }),
+    );
+
+    expect(state.bomb.status).toBe("unavailable");
+    expect(state.source.selectionEvidence).toContain("exact tick 5555");
+  });
+
+  it("rejects player rows whose parser tick is after the selected tick", () => {
+    const futureRows = (selectionInput().tickRows as ParserRecord[]).map((row) => ({
+      ...row,
+      tick: 5556,
+    }));
+
+    expect(() =>
+      buildDemoImportNormalizedState(
+        selectionInput({ tick: 5555, tickRows: futureRows }),
+      ),
+    ).toThrow(/future|selected tick/i);
+  });
+
   it("keeps legal parser events when round fields are absent", () => {
     const input: DemoParserInspectionInput = {
       ...baseInspectionInput,

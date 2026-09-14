@@ -118,6 +118,19 @@ describe("Gate 4 demo import domain", () => {
     expect(() => assertSelectableTick(round, 9000)).toThrow(/selectable range/);
   });
 
+  it("rejects a tick that is not on the browser parser sample interval", () => {
+    const round = getSelectableRound(
+      {
+        ...inspectionFixture,
+        rounds: [{ ...inspectionFixture.rounds[0], tickStep: 4 }],
+      },
+      18,
+    );
+
+    expect(() => assertSelectableTick(round, 5555)).toThrow(/interval/);
+    expect(assertSelectableTick(round, 5556)).toBe(5556);
+  });
+
   it("filters navigation markers at the selected tick before creating the Draft", () => {
     expect(filterMarkersThroughTick(inspectionFixture.markers, 5000)).toEqual([
       inspectionFixture.markers[0],

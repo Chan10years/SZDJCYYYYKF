@@ -617,6 +617,7 @@ function normalizeTickRows(
   rows: readonly unknown[],
   roster: readonly DemoImportInspection["players"][number][],
   sideRows: readonly unknown[] = [],
+  selectedTick: number,
 ) {
   const rosterById = new Map(roster.map((player) => [player.id, player]));
   const sideById = new Map<string, "CT" | "T">();
@@ -629,6 +630,15 @@ function normalizeTickRows(
     }
   }
   const normalized = asRecords(rows, "parseTicks").map((record, index) => {
+    const rowTick = readNumber(record, ["tick"], `parseTicks[${index}].tick`, {
+      required: false,
+      integer: true,
+    });
+    if (rowTick !== null && rowTick > selectedTick) {
+      throw new Error(
+        `parseTicks[${index}] contains a future tick ${rowTick} after selected tick ${selectedTick}`,
+      );
+    }
     const id = readString(record, ["steamid", "user_steamid", "id"], `parseTicks[${index}].steamid`);
     const name = readString(record, ["name", "user_name", "player_name"], `parseTicks[${index}].name`);
     const rosterPlayer = rosterById.get(id);
@@ -826,6 +836,7 @@ export function buildDemoImportNormalizedState(
     input.tickRows,
     inspection.players,
     input.sideRows,
+    input.tick,
   );
   const bomb = foldBombState(input, selectedRound);
   const normalizedBomb = {

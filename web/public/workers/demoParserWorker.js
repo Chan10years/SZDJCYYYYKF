@@ -147,10 +147,10 @@ function makeTickRows(track, tick, roundNumber, rounds) {
   const tickRate = track.tickRate;
   const sampleHz = track.sampleHz;
   const frame = Math.min(
-    Math.max(Math.round((tick / tickRate) * sampleHz), 0),
+    Math.max(Math.floor((tick / tickRate) * sampleHz), 0),
     Math.max(track.frameCount - 1, 0),
   );
-  const actualTick = Math.round((frame / sampleHz) * tickRate);
+  const actualTick = Math.floor((frame / sampleHz) * tickRate);
   const sideRows = makeSideRows(rounds, roundNumber);
   const sideById = new Map(sideRows.map((row) => [row.steamid, row.m_iTeamNum]));
   const weaponNames = parserHeader.weapons ?? [];
@@ -319,6 +319,12 @@ function handleSelection(message) {
   if (!parsed || !currentLoad?.raw) {
     throw new Error("Demo worker has no inspected Demo");
   }
+  const tickStep = currentLoad.raw.selectionTickStep;
+  if (!Number.isInteger(message.tick) || message.tick % tickStep !== 0) {
+    throw new Error(
+      `requested tick ${message.tick} is not aligned to parser sample interval ${tickStep}`,
+    );
+  }
   post({
     type: "parsing",
     stage: "selected-tick",
@@ -330,6 +336,11 @@ function handleSelection(message) {
     message.roundNumber,
     parsed.rounds,
   );
+  if (selected.actualTick > message.tick) {
+    throw new Error(
+      `browser parser sampled future tick ${selected.actualTick} for requested tick ${message.tick}`,
+    );
+  }
   post({
     type: "selection",
     roundNumber: message.roundNumber,
