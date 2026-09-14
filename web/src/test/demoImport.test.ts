@@ -94,6 +94,22 @@ describe("Gate 4 demo import domain", () => {
     expect(parsed.markers.every((marker) => marker.navigationOnly)).toBe(true);
   });
 
+  it("allows the first sampled tick after a non-aligned freeze end", () => {
+    const parsed = DemoImportInspectionSchema.parse({
+      ...inspectionFixture,
+      rounds: [
+        {
+          ...inspectionFixture.rounds[0],
+          freezeEndTick: 1129,
+          minSelectableTick: 1132,
+          tickStep: 4,
+        },
+      ],
+    });
+
+    expect(parsed.rounds[0].minSelectableTick).toBe(1132);
+  });
+
   it("lets the user choose any tick within the selected round range", () => {
     const round = getSelectableRound(inspectionFixture, 18);
 

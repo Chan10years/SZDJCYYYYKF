@@ -13,8 +13,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "output/playwright/production-audit/**",
-    // Generated upstream demoparser2 browser bindings are not application code.
-    "public/vendor/demoparser2/**",
+    // Generated upstream browser parser bindings are not application code.
+    "public/vendor/disalytics/**",
   ]),
 ]);
 

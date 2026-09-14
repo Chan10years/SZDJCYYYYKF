@@ -4,16 +4,16 @@
 
 **Goal:** Let a normal user choose/drop a previously unwired CS2 `.dem`, inspect mechanically available match/Round/time data, choose an explicit Round and tick, create a machine-only `ScenarioDraft`, complete the minimum Human QA authoring needed for a legal `practice` Scenario, and continue through the existing Second Coach.
 
-**Architecture:** Browser-local parser in a dedicated Web Worker using the official `demoparser2` WASM package first. For real Demos rejected by the current WASM build, the client explicitly uses a bounded byte-in/JSON-out compatibility route in the existing Next runtime with the official native `@laihoe/demoparser2` binding. Neither path persists raw Demos or writes generated output. The main thread stores only validated data and authoring state. The importer produces an existing-style Draft and hands a completed practice Scenario to the unchanged `ExperienceShell`.
+**Architecture:** Browser-local parser in a dedicated Web Worker using the patched `demoparser2`-compatible WASM asset. Local parser unsupported/error is explicit and terminal for the session; there is no raw Demo upload fallback, native server parser, fixture substitution, or guessed state. The main thread stores only validated inspection/state and authoring state. The importer produces an existing-style machine-only Draft, applies a Human-confirmed observable boundary, and hands a completed practice Scenario to the unchanged `ExperienceShell`.
 
 ## Task 1: Confirm the parser package and browser build boundary
 
-**Files:** `package.json`, `pnpm-lock.yaml`, `public/vendor/demoparser2/*` or a narrowly scoped bundling adapter, `docs/superpowers/specs/...` only if an evidence-based correction is needed.
+**Files:** `package.json`, `pnpm-lock.yaml`, `public/vendor/disalytics/*`, `public/assets/*`, or a narrowly scoped Worker adapter; `docs/superpowers/specs/...` only if an evidence-based correction is needed.
 
-1. Verify the official WASM package metadata, MIT provenance, exports, and generated asset size; vendor only the generated browser assets needed by the Worker.
-2. Probe the actual WASM exports for initialization, header, event, and exact-tick parsing from `Uint8Array`.
-3. Keep the official native `@laihoe/demoparser2@0.42.0` binding external to the server runtime and prove that the Next production build serves the Worker without importing the native binding into client code.
-4. When the current WASM build rejects the acceptance Demo, use the explicit compatibility route in the existing Next app. Do not add a new service, persistence layer, or fixture fallback.
+1. Verify the MIT provenance and pinned revisions for the generated disalytics/LaihoE browser parser asset; vendor only the generated browser assets needed by the Worker.
+2. Probe initialization, header, event, and sampled player-track parsing from a real `Uint8Array`/stream in a browser Worker.
+3. Prove that the Next production build serves the Worker and matching WASM without a server parser dependency.
+4. If local parsing is unsupported, return an explicit error and terminate the Worker. Do not add a fallback route, service, storage, queue, or fixture.
 
 ## Task 2: Define strict import-domain contracts
 
@@ -54,7 +54,7 @@
    - `reset` releases the in-memory bytes and terminates the session.
 3. Keep parser output behind Zod parsing before it reaches React. The Worker must never return a stale fixture when a parse fails.
 4. Expose a promise/callback client with progress and a structured error state suitable for the UI.
-5. If a local parse is unsupported, make the compatibility transition explicit and send only the selected real file bytes to the existing Next route; validate its response with the same schemas.
+5. If a local parse is unsupported, make the unsupported/error transition explicit, cancel/terminate within the client timeout, and never send the selected file bytes to a server route.
 
 ## Task 5: Add the normal product entry and import/selection UI
 

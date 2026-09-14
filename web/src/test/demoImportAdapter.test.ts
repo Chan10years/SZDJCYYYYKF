@@ -109,7 +109,7 @@ describe("demoparser2 output adapter", () => {
 
     expect(state.round.number).toBe(18);
     expect(state.tick).toBe(5555);
-    expect(state.time.display).toBe("0:46");
+    expect(state.time.display).toBe("0:48");
     expect(state.time.semantics).toBe("round_clock_remaining");
     expect(state.bomb.status).toBe("unavailable");
     expect(state.players).toHaveLength(10);
@@ -158,6 +158,108 @@ describe("demoparser2 output adapter", () => {
     expect(state.bomb.status).toBe("planted");
     expect(state.bomb.derivedFrom).toContain("through tick 7500");
     expect(state.time.semantics).toBe("post_plant_elapsed");
+  });
+
+  it("keeps legal parser events when round fields are absent", () => {
+    const input: DemoParserInspectionInput = {
+      ...baseInspectionInput,
+      roundFreezeEndEvents: baseInspectionInput.roundFreezeEndEvents.map((event) => {
+        const record = event as ParserRecord;
+        return { tick: record.tick, game_time: record.game_time };
+      }),
+      killEvents: [{ tick: 4000, game_time: 147 }],
+      bombEvents: [
+        {
+          event_name: "bomb_planted",
+          tick: 7000,
+          game_time: 194,
+          user_steamid: "1000",
+          user_name: "T0",
+        },
+      ],
+    };
+
+    const inspection = buildDemoImportInspection(input);
+
+    expect(inspection.rounds[0]).toMatchObject({
+      number: 18,
+      freezeEndTick: 1128,
+    });
+    expect(inspection.markers.map((marker) => marker.tick)).toEqual([
+      4000,
+      7000,
+    ]);
+
+    const state = buildDemoImportNormalizedState({
+      ...input,
+      roundNumber: 18,
+      tick: 7500,
+      tickRows: (selectionInput().tickRows as ParserRecord[]).map((row) => ({
+        ...row,
+        tick: 7500,
+        game_time: 201,
+      })),
+    });
+    expect(state.bomb.status).toBe("planted");
+  });
+
+  it("deduplicates temporal Round boundaries before assigning freezes and ends", () => {
+    const input: DemoParserInspectionInput = {
+      ...baseInspectionInput,
+      roundStartEvents: [
+        { tick: 5, game_time: 5 / 64, round: 14, total_rounds_played: 13 },
+        { tick: 1, game_time: 1 / 64, round: 14, total_rounds_played: 13 },
+        { tick: 10640, game_time: 10640 / 64, round: 15, total_rounds_played: 14 },
+      ],
+      roundFreezeEndEvents: [
+        { tick: 11920, game_time: 11920 / 64, total_rounds_played: 14 },
+        { tick: 4580, game_time: 4580 / 64, total_rounds_played: 13 },
+      ],
+      roundEndEvents: [
+        { tick: 16432, game_time: 16432 / 64, round: 16, winner: "CT" },
+        { tick: 5, game_time: 5 / 64, round: 14, winner: null },
+        { tick: 10320, game_time: 10320 / 64, round: 15, winner: "T" },
+      ],
+    };
+
+    const rounds = buildDemoImportInspection(input).rounds;
+
+    expect(rounds.map((round) => round.number)).toEqual([14, 15]);
+    expect(rounds[0]).toMatchObject({
+      startTick: 5,
+      freezeEndTick: 4580,
+      endTick: 10320,
+    });
+    expect(rounds[1]).toMatchObject({
+      startTick: 10640,
+      freezeEndTick: 11920,
+      endTick: 16432,
+    });
+  });
+
+  it("anchors round clock and post-plant copy to freeze end", () => {
+    const state = buildDemoImportNormalizedState(
+      selectionInput({
+        tick: 1800,
+        tickRows: (selectionInput().tickRows as ParserRecord[]).map((row) => ({
+          ...row,
+          tick: 1800,
+          game_time: 112,
+        })),
+        bombEvents: [
+          {
+            event_name: "bomb_planted",
+            tick: 1500,
+            game_time: 110,
+          },
+        ],
+      }),
+    );
+
+    expect(state.time.roundStartTick).toBe(1128);
+    expect(state.time.roundStartGameTime).toBe(102);
+    expect(state.time.display).toBe("下包后 0:02");
+    expect(state.time.elapsedSeconds).toBe(10);
   });
 
   it("rejects an exact tick that cannot provide ten stable players", () => {

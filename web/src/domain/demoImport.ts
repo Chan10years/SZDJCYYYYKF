@@ -3,7 +3,7 @@ import { z } from "zod";
 const Sha256Schema = z.string().regex(/^[A-F0-9]{64}$/);
 const FiniteNumberSchema = z.number().finite();
 
-/** Product import guard; it is shared by browser and compatibility paths. */
+/** Product import guard for the browser-local Demo path. */
 export const MAX_DEMO_FILE_SIZE_BYTES = 1_000_000_000;
 
 export const DemoImportStatusSchema = z.enum([
@@ -74,6 +74,7 @@ export const DemoImportRoundSchema = z
     freezeEndGameTime: FiniteNumberSchema.min(0),
     endGameTime: FiniteNumberSchema.min(0).nullable(),
     tickrate: FiniteNumberSchema.positive(),
+    tickStep: z.number().int().positive().optional(),
     durationSeconds: FiniteNumberSchema.positive(),
   })
   .strict()
@@ -85,11 +86,19 @@ export const DemoImportRoundSchema = z
         message: "freeze end must be at or after round start",
       });
     }
-    if (round.minSelectableTick !== round.freezeEndTick) {
+    if (round.minSelectableTick < round.freezeEndTick) {
       context.addIssue({
         code: "custom",
         path: ["minSelectableTick"],
-        message: "selectable range must begin at the freeze end boundary",
+        message: "selectable range must begin at or after the freeze end boundary",
+      });
+    }
+    const tickStep = round.tickStep ?? 1;
+    if (round.minSelectableTick % tickStep !== 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["minSelectableTick"],
+        message: "selectable range must align to the parser tick interval",
       });
     }
     if (round.maxSelectableTick < round.minSelectableTick) {

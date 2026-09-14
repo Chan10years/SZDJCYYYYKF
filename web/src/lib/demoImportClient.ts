@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   assertSelectableTick,
-  DemoImportInspectionSchema,
   getSelectableRound,
   MAX_DEMO_FILE_SIZE_BYTES,
   type DemoImportInspection,
@@ -15,7 +14,7 @@ import {
 } from "@/domain/demoImportAdapter";
 import { NormalizedMatchStateSchema } from "@/domain/normalizedMatchState";
 
-export type DemoImportClientMode = "browser-local" | "compatibility";
+export type DemoImportClientMode = "browser-local";
 
 export type DemoImportProgress = {
   status: DemoImportStatus;
@@ -60,22 +59,15 @@ export type DemoImportWorkerLike = {
   terminate: () => void;
 };
 
-type FetchImplementation = (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-) => Promise<Response>;
-
 export type DemoImportClientOptions = {
   workerFactory?: () => DemoImportWorkerLike;
-  fetchImpl?: FetchImplementation;
-  endpoint?: string;
   workerTimeoutMs?: number;
   onProgress?: (progress: DemoImportProgress) => void;
 };
 
 export type DemoImportClientLike = Pick<
   DemoImportClient,
-  "load" | "select" | "reset"
+  "load" | "select" | "reset" | "cancel"
 >;
 
 type LoadedDemo = {
@@ -83,41 +75,20 @@ type LoadedDemo = {
   inspection: DemoImportInspection;
   mode: DemoImportClientMode;
   baseInput: DemoParserInspectionInput;
-  worker: DemoImportWorkerLike | null;
+  worker: DemoImportWorkerLike;
 };
 
-const CompatibilityErrorSchema = z
-  .object({
-    kind: z.literal("error"),
-    code: z.enum(["invalid-request", "unsupported", "parse-failed"]),
-    message: z.string().trim().min(1),
-  })
-  .strict();
-
-const CompatibilityInspectionSchema = z
-  .object({
-    kind: z.literal("inspection"),
-    inspection: DemoImportInspectionSchema,
-  })
-  .strict();
-
-const CompatibilitySelectionSchema = z
-  .object({
-    kind: z.literal("selection"),
-    inspection: DemoImportInspectionSchema,
-    normalizedMatchState: NormalizedMatchStateSchema,
-  })
-  .strict();
-
-const CompatibilitySuccessSchema = z.union([
-  CompatibilityInspectionSchema,
-  CompatibilitySelectionSchema,
-]);
-
-class LocalParserUnsupportedError extends Error {
-  constructor() {
-    super("browser-local parser unsupported");
+export class LocalParserUnsupportedError extends Error {
+  constructor(message = "浏览器本地 parser 不支持当前 Demo；未上传原始文件。") {
+    super(message);
     this.name = "LocalParserUnsupportedError";
+  }
+}
+
+export class DemoImportCancelledError extends Error {
+  constructor() {
+    super("已取消 Demo 解析");
+    this.name = "DemoImportCancelledError";
   }
 }
 
@@ -149,6 +120,7 @@ function workerBaseInput(
   if (typeof demoSha256 !== "string") {
     throw new LocalParserUnsupportedError();
   }
+  const selectionTickStep = message.selectionTickStep;
   return {
     fileName: file.name,
     fileSize: file.size,
@@ -160,6 +132,7 @@ function workerBaseInput(
     roundEndEvents: asArray(raw.roundEndEvents),
     killEvents: asArray(raw.killEvents),
     bombEvents: asArray(raw.bombEvents),
+    ...(typeof selectionTickStep === "number" ? { selectionTickStep } : {}),
   };
 }
 
@@ -167,14 +140,16 @@ function workerSelectionInput(
   messageInput: unknown,
   baseInput: DemoParserInspectionInput,
   roundNumber: number,
-  tick: number,
+  requestedTick: number,
 ): DemoParserSelectionInput {
   const message = asRecord(messageInput);
   const raw = asRecord(message.raw);
+  const actualTick =
+    typeof message.actualTick === "number" ? message.actualTick : requestedTick;
   return {
     ...baseInput,
     roundNumber,
-    tick,
+    tick: actualTick,
     tickRows: asArray(raw.tickRows),
     sideRows: Array.isArray(raw.sideRows) ? raw.sideRows : undefined,
   };
@@ -182,7 +157,9 @@ function workerSelectionInput(
 
 function defaultWorkerFactory(): DemoImportWorkerLike {
   if (typeof Worker === "undefined") {
-    throw new LocalParserUnsupportedError();
+    throw new LocalParserUnsupportedError(
+      "当前环境没有可用的浏览器 Worker；未上传原始文件。",
+    );
   }
   const worker = new Worker("/workers/demoParserWorker.js", {
     type: "classic",
@@ -203,30 +180,19 @@ function defaultWorkerFactory(): DemoImportWorkerLike {
   };
 }
 
-function defaultFetchImpl(
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Promise<Response> {
-  return globalThis.fetch(input, init);
-}
-
-/**
- * Client-side orchestration for the product import flow. Browser WASM is the
- * first attempt; the compatibility request is only a real-byte parser path,
- * never a fixture fallback.
- */
+/** Browser-local orchestration for the product import flow. */
 export class DemoImportClient {
   private readonly workerFactory: () => DemoImportWorkerLike;
-  private readonly fetchImpl: FetchImplementation;
-  private readonly endpoint: string;
   private readonly workerTimeoutMs: number;
   private readonly onProgress: (progress: DemoImportProgress) => void;
   private loadedDemo: LoadedDemo | null = null;
+  private activeWorker: DemoImportWorkerLike | null = null;
+  private generation = 0;
+  private pendingReject: ((error: Error) => void) | null = null;
+  private pendingCleanup: (() => void) | null = null;
 
   constructor(options: DemoImportClientOptions = {}) {
     this.workerFactory = options.workerFactory ?? defaultWorkerFactory;
-    this.fetchImpl = options.fetchImpl ?? defaultFetchImpl;
-    this.endpoint = options.endpoint ?? "/api/demo-import";
     this.workerTimeoutMs = options.workerTimeoutMs ?? 180_000;
     this.onProgress = options.onProgress ?? (() => undefined);
   }
@@ -234,12 +200,29 @@ export class DemoImportClient {
   async load(file: File): Promise<DemoImportLoadResult> {
     this.validateFile(file);
     this.reset();
-    this.emit({ status: "reading", message: "正在读取 Demo…" });
+    const generation = this.generation;
+    this.emit({
+      status: "reading",
+      message: "正在浏览器本地读取 Demo…",
+      mode: "browser-local",
+    });
     let worker: DemoImportWorkerLike | null = null;
     try {
       worker = this.workerFactory();
-      const resultPromise = this.waitForWorkerMessage(worker, "inspection");
+      this.activeWorker = worker;
+      const resultPromise = this.waitForWorkerMessage(
+        worker,
+        "inspection",
+        generation,
+      );
+      // `file.arrayBuffer()` yields before the awaited worker promise below.
+      // Attach a handler now so an immediate user cancellation cannot leave
+      // the internal promise temporarily unhandled.
+      void resultPromise.catch(() => undefined);
       const buffer = await file.arrayBuffer();
+      if (generation !== this.generation) {
+        throw new DemoImportCancelledError();
+      }
       worker.postMessage(
         {
           type: "load",
@@ -259,21 +242,28 @@ export class DemoImportClient {
         baseInput,
         worker,
       };
+      this.activeWorker = worker;
       this.emit({
         status: "ready",
-        message: "Demo 已解析，选择 Round 与时间截点。",
+        message: "Demo 已在浏览器本地解析，选择 Round 与时间截点。",
         mode: "browser-local",
       });
       return { inspection, mode: "browser-local" };
     } catch (error) {
-      worker?.terminate();
-      if (!(error instanceof LocalParserUnsupportedError)) {
-        this.emit({
-          status: "unsupported",
-          message: "浏览器本地 parser 不支持当前 Demo，正在切换兼容 parser。",
-        });
+      if (error instanceof DemoImportCancelledError) {
+        throw error;
       }
-      return this.loadWithCompatibilityParser(file);
+      worker?.terminate();
+      if (this.activeWorker === worker) {
+        this.activeWorker = null;
+      }
+      const parserError = this.asParserError(error);
+      this.emit({
+        status: "unsupported",
+        message: parserError.message,
+        mode: "browser-local",
+      });
+      throw parserError;
     }
   }
 
@@ -287,15 +277,12 @@ export class DemoImportClient {
     }
     const round = getSelectableRound(loaded.inspection, roundNumber);
     assertSelectableTick(round, tick);
-
-    if (loaded.mode === "compatibility" || loaded.worker === null) {
-      return this.selectWithCompatibilityParser(loaded.file, roundNumber, tick);
-    }
-
+    const generation = this.generation;
     try {
       const resultPromise = this.waitForWorkerMessage(
         loaded.worker,
         "selection",
+        generation,
       );
       loaded.worker.postMessage({
         type: "select",
@@ -312,22 +299,51 @@ export class DemoImportClient {
       );
       const normalizedMatchState = buildDemoImportNormalizedState(selectionInput);
       return { normalizedMatchState, mode: "browser-local" };
-    } catch {
+    } catch (error) {
+      if (error instanceof DemoImportCancelledError) {
+        throw error;
+      }
       loaded.worker.terminate();
-      loaded.worker = null;
-      loaded.mode = "compatibility";
+      this.loadedDemo = null;
+      if (this.activeWorker === loaded.worker) {
+        this.activeWorker = null;
+      }
+      const parserError = this.asParserError(error);
       this.emit({
         status: "unsupported",
-        message: "浏览器本地 parser 无法读取该截点，正在切换兼容 parser。",
-        mode: "compatibility",
+        message: parserError.message,
+        mode: "browser-local",
       });
-      return this.selectWithCompatibilityParser(loaded.file, roundNumber, tick);
+      throw parserError;
+    }
+  }
+
+  cancel(): void {
+    const hadWork = this.activeWorker !== null || this.pendingReject !== null;
+    this.reset();
+    if (hadWork) {
+      this.emit({
+        status: "idle",
+        message: "已取消 Demo 解析。原始文件未上传。",
+        mode: "browser-local",
+      });
     }
   }
 
   reset(): void {
-    this.loadedDemo?.worker?.terminate();
+    this.generation += 1;
+    const pendingReject = this.pendingReject;
+    const pendingCleanup = this.pendingCleanup;
+    this.pendingReject = null;
+    this.pendingCleanup = null;
+    pendingCleanup?.();
+    pendingReject?.(new DemoImportCancelledError());
+    this.loadedDemo?.worker.terminate();
+    if (this.activeWorker && this.activeWorker !== this.loadedDemo?.worker) {
+      this.activeWorker.terminate();
+    }
     this.loadedDemo = null;
+    this.activeWorker = null;
   }
 
   private validateFile(file: File): void {
@@ -345,6 +361,22 @@ export class DemoImportClient {
     }
   }
 
+  private asParserError(error: unknown): LocalParserUnsupportedError {
+    if (error instanceof LocalParserUnsupportedError) {
+      return error;
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    const detailSuffix =
+      detail && detail !== "undefined"
+        ? `（${detail.slice(0, 240)}）`
+        : "";
+    return new LocalParserUnsupportedError(
+      detail.includes("超时")
+        ? "浏览器本地 parser 超时；未上传原始文件。"
+        : `浏览器本地 parser 无法读取当前 Demo；未上传原始文件。${detailSuffix}`,
+    );
+  }
+
   private emit(progress: DemoImportProgress): void {
     this.onProgress(progress);
   }
@@ -352,20 +384,42 @@ export class DemoImportClient {
   private waitForWorkerMessage(
     worker: DemoImportWorkerLike,
     finalType: "inspection" | "selection",
+    generation: number,
   ): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      let settled = false;
+      let cleanup = () => undefined;
+      const settleReject = (error: Error) => {
+        if (settled) return;
+        settled = true;
         cleanup();
-        reject(new LocalParserUnsupportedError());
+        reject(error);
+      };
+      const settleResolve = (message: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(message);
+      };
+      const timeout = setTimeout(() => {
+        worker.terminate();
+        settleReject(
+          new LocalParserUnsupportedError(
+            "浏览器本地 parser 超时；未上传原始文件。",
+          ),
+        );
       }, this.workerTimeoutMs);
       const onMessage = (event: MessageEvent) => {
+        if (generation !== this.generation) return;
         const message = event.data;
-        if (!message || typeof message !== "object") {
-          return;
-        }
+        if (!message || typeof message !== "object") return;
         const type = (message as { type?: unknown }).type;
         if (type === "reading") {
-          this.emit({ status: "reading", message: "正在读取 Demo…" });
+          this.emit({
+            status: "reading",
+            message: "正在浏览器本地读取 Demo…",
+            mode: "browser-local",
+          });
           return;
         }
         if (type === "parsing") {
@@ -377,138 +431,52 @@ export class DemoImportClient {
             status: "parsing",
             message:
               stage === "selected-tick"
-                ? "正在恢复所选精确 tick…"
-                : "正在解析比赛事件…",
+                ? "正在浏览器本地恢复所选 tick…"
+                : "正在浏览器本地解析比赛事件…",
+            mode: "browser-local",
             stage,
           });
           return;
         }
         if (type === "error") {
-          cleanup();
-          reject(new LocalParserUnsupportedError());
+          const detail =
+            typeof (message as { message?: unknown }).message === "string"
+              ? (message as { message: string }).message
+              : undefined;
+          settleReject(
+            new LocalParserUnsupportedError(
+              detail ?? "浏览器本地 parser 无法读取当前 Demo；未上传原始文件。",
+            ),
+          );
           return;
         }
         if (type === finalType) {
-          cleanup();
-          resolve(message);
+          settleResolve(message);
         }
       };
-      const onError = () => {
-        cleanup();
-        reject(new LocalParserUnsupportedError());
+      const onError = (event: MessageEvent) => {
+        const detail = (event as unknown as { message?: unknown })?.message;
+        settleReject(
+          new LocalParserUnsupportedError(
+            typeof detail === "string" && detail.length > 0
+              ? `浏览器本地 parser 发生错误；未上传原始文件。(${detail})`
+              : "浏览器本地 parser 发生错误；未上传原始文件。",
+          ),
+        );
       };
-      const cleanup = () => {
+      cleanup = () => {
         clearTimeout(timeout);
         worker.removeEventListener("message", onMessage);
         worker.removeEventListener("error", onError);
+        if (this.pendingReject === settleReject) {
+          this.pendingReject = null;
+          this.pendingCleanup = null;
+        }
       };
+      this.pendingReject = settleReject;
+      this.pendingCleanup = cleanup;
       worker.addEventListener("message", onMessage);
       worker.addEventListener("error", onError);
     });
-  }
-
-  private async loadWithCompatibilityParser(
-    file: File,
-  ): Promise<DemoImportLoadResult> {
-    this.emit({
-      status: "parsing",
-      message: "兼容 parser 正在读取这场真实 Demo…",
-      mode: "compatibility",
-    });
-    const response = await this.requestCompatibility(file, "inspect");
-    if (response.kind !== "inspection") {
-      throw new Error("兼容 parser 未返回 inspection");
-    }
-    const baseInput: DemoParserInspectionInput = {
-      fileName: response.inspection.fileName,
-      fileSize: response.inspection.fileSize,
-      demoSha256: response.inspection.source.demoSha256,
-      header: {
-        map_name: response.inspection.map.name,
-        demo_version_name: response.inspection.source.demoVersion,
-        patch_version: response.inspection.source.patchVersion,
-        server_name: response.inspection.matchLabel,
-      },
-      playerFirstConnectEvents: [],
-      roundStartEvents: [],
-      roundFreezeEndEvents: [],
-      roundEndEvents: [],
-      killEvents: [],
-      bombEvents: [],
-    };
-    this.loadedDemo = {
-      file,
-      inspection: response.inspection,
-      mode: "compatibility",
-      baseInput,
-      worker: null,
-    };
-    this.emit({
-      status: "ready",
-      message: "Demo 已解析，选择 Round 与时间截点。",
-      mode: "compatibility",
-    });
-    return { inspection: response.inspection, mode: "compatibility" };
-  }
-
-  private async selectWithCompatibilityParser(
-    file: File,
-    roundNumber: number,
-    tick: number,
-  ): Promise<DemoImportSelectionResult> {
-    this.emit({
-      status: "parsing",
-      message: "兼容 parser 正在恢复所选精确 tick…",
-      mode: "compatibility",
-    });
-    const response = await this.requestCompatibility(file, "select", {
-      roundNumber,
-      tick,
-    });
-    if (response.kind !== "selection") {
-      throw new Error("兼容 parser 未返回 selected state");
-    }
-    if (this.loadedDemo) {
-      this.loadedDemo.inspection = response.inspection;
-    }
-    return {
-      normalizedMatchState: response.normalizedMatchState,
-      mode: "compatibility",
-    };
-  }
-
-  private async requestCompatibility(
-    file: File,
-    action: "inspect" | "select",
-    selection?: { roundNumber: number; tick: number },
-  ): Promise<z.infer<typeof CompatibilitySuccessSchema>> {
-    const form = new FormData();
-    form.set("action", action);
-    form.set("demo", file, file.name);
-    if (selection) {
-      form.set("roundNumber", String(selection.roundNumber));
-      form.set("tick", String(selection.tick));
-    }
-    const response = await this.fetchImpl(this.endpoint, {
-      method: "POST",
-      body: form,
-    });
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new Error("兼容 parser response is not JSON");
-    }
-    if (!response.ok) {
-      const error = CompatibilityErrorSchema.safeParse(payload);
-      throw new Error(
-        error.success ? error.data.message : "兼容 parser request failed",
-      );
-    }
-    const parsed = CompatibilitySuccessSchema.safeParse(payload);
-    if (!parsed.success) {
-      throw new Error("兼容 parser response failed schema validation");
-    }
-    return parsed.data;
   }
 }

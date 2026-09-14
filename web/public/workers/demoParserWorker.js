@@ -1,205 +1,373 @@
-/* global crypto, importScripts, self, wasm_bindgen */
+/* global Blob, crypto, importScripts, self */
 
-const EVENT_NAMES = [
-  "player_first_connect",
-  "round_start",
-  "round_freeze_end",
-  "round_end",
-  "player_death",
-  "bomb_pickup",
-  "bomb_dropped",
-  "bomb_planted",
-  "bomb_defused",
-  "bomb_exploded",
-];
+// The generated disalytics worker owns the patched LaihoE parser and WASM
+// runtime. This file is deliberately only a protocol/normalization adapter:
+// the Demo bytes enter this Worker and never leave it.
 
-const EVENT_EXTRA = [
-  "game_time",
-  "total_rounds_played",
-  "round",
-  "is_warmup_period",
-];
+const SAMPLE_STEP_FALLBACK = 4;
+const FLAG_ALIVE = 1;
+const WEAPON_NONE = 255;
 
-const TICK_PROPS = [
-  "X",
-  "Y",
-  "Z",
-  "steamid",
-  "name",
-  "health",
-  "is_alive",
-  "m_iTeamNum",
-  "active_weapon_name",
-  "last_place_name",
-  "game_time",
-  "total_rounds_played",
-];
+const nativePostMessage = self.postMessage.bind(self);
+let vendorOnMessage = null;
+let parsed = null;
+let parserHeader = null;
+let currentLoad = null;
 
-let bytes = null;
-let baseRaw = null;
-let parserReady = false;
-
-function postProgress(message) {
-  self.postMessage(message);
+function post(message) {
+  nativePostMessage(message);
 }
 
-function cloneParserValue(value) {
-  if (value instanceof Map) {
-    return Object.fromEntries(
-      [...value.entries()].map(([key, entry]) => [key, cloneParserValue(entry)]),
-    );
-  }
-  if (Array.isArray(value)) {
-    return value.map(cloneParserValue);
-  }
-  if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, cloneParserValue(entry)]),
-    );
+function asArray(value, label) {
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} parser result must be an array`);
   }
   return value;
 }
 
-function parserRecords(value, label) {
-  const cloned = cloneParserValue(value);
-  if (!Array.isArray(cloned)) {
-    throw new Error(`${label} parser result must be an array`);
-  }
-  return cloned;
+function eventTime(tick, tickRate) {
+  return tick / tickRate;
 }
 
-function getEventName(entry) {
-  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-    return null;
-  }
-  const value = entry.event_name ?? entry.event;
-  return typeof value === "string" ? value : null;
+function playerBySlot(slot) {
+  return parserHeader?.players?.find((player) => player.slot === slot) ?? null;
 }
 
-function groupEvents(events) {
-  const byName = (name) => events.filter((entry) => getEventName(entry) === name);
+function activePlayersForTrack(track) {
+  const players = parserHeader?.players ?? [];
+  const activePlayers = players.filter(
+    (player) =>
+      Number.isInteger(player.slot) &&
+      player.slot >= 0 &&
+      player.slot < track.slotCount,
+  );
+  if (activePlayers.length !== track.slotCount) {
+    throw new Error(
+      `browser parser header has ${activePlayers.length} active players for ${track.slotCount} track slots`,
+    );
+  }
+  return activePlayers;
+}
+
+function teamNumber(team) {
+  return team === "CT" ? 3 : 2;
+}
+
+function makeRoundEvents(rounds, tickRate) {
   return {
-    playerFirstConnectEvents: byName("player_first_connect"),
-    roundStartEvents: byName("round_start"),
-    roundFreezeEndEvents: byName("round_freeze_end"),
-    roundEndEvents: byName("round_end"),
-    killEvents: byName("player_death"),
-    bombEvents: events.filter((entry) =>
-      [
-        "bomb_pickup",
-        "bomb_dropped",
-        "bomb_planted",
-        "bomb_defused",
-        "bomb_exploded",
-      ].includes(getEventName(entry)),
+    roundStartEvents: rounds.map((round) => ({
+      event_name: "round_start",
+      tick: round.startTick,
+      game_time: eventTime(round.startTick, tickRate),
+      round: round.number,
+      total_rounds_played: Math.max(0, round.number - 1),
+      is_warmup_period: false,
+    })),
+    // The parser's round object is authoritative for the boundary, but the
+    // optional event round fields are intentionally not required here.
+    roundFreezeEndEvents: rounds.map((round) => ({
+      event_name: "round_freeze_end",
+      tick: round.freezeTimeEndTick,
+      game_time: eventTime(round.freezeTimeEndTick, tickRate),
+    })),
+    roundEndEvents: rounds.map((round) => ({
+      event_name: "round_end",
+      tick: round.endTick,
+      game_time: eventTime(round.endTick, tickRate),
+      round: round.number,
+      total_rounds_played: round.number,
+      winner: round.winner,
+      is_warmup_period: false,
+    })),
+  };
+}
+
+function makeBombEvents(events, rounds, tickRate) {
+  const plants = asArray(events.plants, "plants");
+  const bombEvents = [];
+  for (const plant of plants) {
+    const planter = playerBySlot(plant.planter);
+    bombEvents.push({
+      event_name: "bomb_planted",
+      tick: plant.tick,
+      game_time: eventTime(plant.tick, tickRate),
+      user_steamid: planter?.steamId,
+      user_name: planter?.name,
+    });
+    if (typeof plant.detonationTick === "number") {
+      bombEvents.push({
+        event_name: "bomb_exploded",
+        tick: plant.detonationTick,
+        game_time: eventTime(plant.detonationTick, tickRate),
+      });
+    }
+  }
+  for (const defuse of asArray(events.defuses, "defuses")) {
+    if (
+      defuse.outcome &&
+      defuse.outcome.status === "completed" &&
+      typeof defuse.outcome.tick === "number"
+    ) {
+      bombEvents.push({
+        event_name: "bomb_defused",
+        tick: defuse.outcome.tick,
+        game_time: eventTime(defuse.outcome.tick, tickRate),
+      });
+    }
+  }
+  for (const round of rounds) {
+    if (round.reason === "bomb-exploded") {
+      bombEvents.push({
+        event_name: "bomb_exploded",
+        tick: round.endTick,
+        game_time: eventTime(round.endTick, tickRate),
+      });
+    }
+  }
+  return bombEvents;
+}
+
+function makeSideRows(rounds, roundNumber) {
+  const round = rounds.find((candidate) => candidate.number === roundNumber);
+  const economyBySlot = new Map(
+    (round?.economy ?? []).map((entry) => [entry.slot, entry.team]),
+  );
+  return parserHeader.players.map((player) => {
+    const side = economyBySlot.get(player.slot) ?? player.team;
+    return {
+      steamid: player.steamId,
+      name: player.name,
+      team: teamNumber(side),
+      m_iTeamNum: teamNumber(side),
+    };
+  });
+}
+
+function makeTickRows(track, tick, roundNumber, rounds) {
+  const tickRate = track.tickRate;
+  const sampleHz = track.sampleHz;
+  const frame = Math.min(
+    Math.max(Math.round((tick / tickRate) * sampleHz), 0),
+    Math.max(track.frameCount - 1, 0),
+  );
+  const actualTick = Math.round((frame / sampleHz) * tickRate);
+  const sideRows = makeSideRows(rounds, roundNumber);
+  const sideById = new Map(sideRows.map((row) => [row.steamid, row.m_iTeamNum]));
+  const weaponNames = parserHeader.weapons ?? [];
+  const rows = parserHeader.players.map((player) => {
+    const index = frame * track.slotCount + player.slot;
+    const weaponIndex = track.weapon[index];
+    return {
+      X: track.posX[index] ?? 0,
+      Y: track.posY[index] ?? 0,
+      Z: track.posZ[index] ?? 0,
+      steamid: player.steamId,
+      name: player.name,
+      m_iTeamNum: sideById.get(player.steamId) ?? teamNumber(player.team),
+      health: track.health[index] ?? 0,
+      is_alive: ((track.flags[index] ?? 0) & FLAG_ALIVE) !== 0,
+      active_weapon_name:
+        weaponIndex === undefined || weaponIndex === WEAPON_NONE
+          ? null
+          : weaponNames[weaponIndex] ?? null,
+      last_place_name: null,
+      game_time: eventTime(actualTick, tickRate),
+      tick: actualTick,
+    };
+  });
+  return { actualTick, tickRows: rows, sideRows };
+}
+
+function makeRaw(events, track, header) {
+  const tickRate = header.tickRate;
+  const rounds = asArray(events.rounds, "rounds");
+  const roundEvents = makeRoundEvents(rounds, tickRate);
+  return {
+    header: {
+      map_name: header.map,
+    },
+    playerFirstConnectEvents: header.players.map((player) => ({
+      event_name: "player_first_connect",
+      steamid: player.steamId,
+      name: player.name,
+      team: player.team,
+    })),
+    ...roundEvents,
+    killEvents: asArray(events.kills, "kills").map((kill) => ({
+      event_name: "player_death",
+      tick: kill.tick,
+      game_time: eventTime(kill.tick, tickRate),
+    })),
+    bombEvents: makeBombEvents(events, rounds, tickRate),
+    selectionTickStep: Math.max(
+      1,
+      Math.round(tickRate / (track.sampleHz || 16)) || SAMPLE_STEP_FALLBACK,
+    ),
+    roundSideRowsByNumber: Object.fromEntries(
+      rounds.map((round) => [String(round.number), makeSideRows(rounds, round.number)]),
     ),
   };
 }
 
-async function ensureParser() {
-  if (parserReady) return;
-  importScripts("/vendor/demoparser2/demoparser2.js");
-  await wasm_bindgen({
-    module_or_path: "/vendor/demoparser2/demoparser2_bg.wasm",
-  });
-  parserReady = true;
-}
-
-async function digestSha256(input) {
-  const digest = await crypto.subtle.digest("SHA-256", input);
+async function digestSha256(buffer) {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")
     .toUpperCase();
 }
 
-function postError(error) {
-  postProgress({
+function parserError(detail) {
+  const detailText = detail instanceof Error ? detail.message : String(detail);
+  post({
     type: "error",
     code: "unsupported",
-    message: "浏览器本地 parser 无法读取这场 Demo，正在切换兼容 parser。",
-    detail: error instanceof Error ? error.message : String(error),
+    message:
+      detailText && detailText !== "browser parser failed"
+        ? `浏览器本地 parser 不支持或无法读取这场 Demo；未上传原始文件。(${detailText})`
+        : "浏览器本地 parser 不支持或无法读取这场 Demo；未上传原始文件。",
+    detail: detailText,
   });
 }
 
-self.onmessage = async (event) => {
-  const message = event.data;
-  try {
-    if (message?.type === "reset") {
-      bytes = null;
-      baseRaw = null;
-      return;
-    }
-    if (message?.type === "load") {
-      if (!(message.buffer instanceof ArrayBuffer)) {
-        throw new Error("Demo worker load requires an ArrayBuffer");
-      }
-      bytes = new Uint8Array(message.buffer);
-      baseRaw = null;
-      postProgress({ type: "reading", fileSize: message.fileSize });
-      await ensureParser();
-      postProgress({ type: "parsing", stage: "events" });
-      const events = parserRecords(
-        wasm_bindgen.parseEvents(bytes, EVENT_NAMES, [], EVENT_EXTRA),
-        "parseEvents",
-      );
-      baseRaw = {
-        header: cloneParserValue(wasm_bindgen.parseHeader(bytes)),
-        ...groupEvents(events),
-      };
-      postProgress({
-        type: "inspection",
-        fileName: message.fileName,
-        fileSize: message.fileSize,
-        demoSha256: await digestSha256(bytes),
-        raw: baseRaw,
-      });
-      return;
-    }
-    if (message?.type === "select") {
-      if (!bytes || !baseRaw) {
-        throw new Error("Demo worker has no inspected Demo");
-      }
-      postProgress({ type: "parsing", stage: "selected-tick", tick: message.tick });
-      const tickRows = parserRecords(
-        wasm_bindgen.parseTicks(
-          bytes,
-          TICK_PROPS,
-          new Int32Array([message.tick]),
-          undefined,
-          false,
-        ),
-        "parseTicks",
-      );
-      const sideRows =
-        message.sideTick === message.tick
-          ? tickRows
-          : parserRecords(
-              wasm_bindgen.parseTicks(
-                bytes,
-                TICK_PROPS,
-                new Int32Array([message.sideTick]),
-                undefined,
-                false,
-              ),
-              "freeze-end parseTicks",
-            );
-      postProgress({
-        type: "selection",
-        roundNumber: message.roundNumber,
-        tick: message.tick,
-        raw: {
-          ...baseRaw,
-          roundNumber: message.roundNumber,
-          tick: message.tick,
-          tickRows,
-          sideRows,
-        },
-      });
-      return;
-    }
-    throw new Error("unknown Demo worker message");
-  } catch (error) {
-    postError(error);
+async function finishParse(payload) {
+  const events = payload.events;
+  const track = payload.track;
+  if (!parserHeader || !events || !track) {
+    throw new Error("browser parser returned no header, events, or track");
   }
-};
+  parserHeader = {
+    ...parserHeader,
+    players: activePlayersForTrack(track),
+  };
+  const raw = makeRaw(events, track, parserHeader);
+  currentLoad.raw = raw;
+  currentLoad.demoSha256 = await digestSha256(currentLoad.buffer);
+  parsed = { events, track, header: parserHeader, rounds: events.rounds };
+  post({
+    type: "inspection",
+    fileName: currentLoad.fileName,
+    fileSize: currentLoad.fileSize,
+    demoSha256: currentLoad.demoSha256,
+    selectionTickStep: raw.selectionTickStep,
+    raw,
+  });
+}
+
+function handleVendorMessage(message) {
+  if (!message || typeof message !== "object") return;
+  if (message.type === "progress") {
+    post({
+      type: "parsing",
+      stage: "events",
+      percent: message.percent,
+    });
+    return;
+  }
+  if (message.type === "header") {
+    parserHeader = message.header;
+    post({ type: "parsing", stage: "header" });
+    return;
+  }
+  if (message.type === "error") {
+    parserError(message.code ?? "browser parser failed");
+    return;
+  }
+  if (message.type === "done") {
+    void finishParse(message).catch(parserError);
+  }
+}
+
+function ensureVendorWorkerProtocol() {
+  if (vendorOnMessage !== null) return;
+  // The generated worker calls the global `postMessage`. Intercept it while
+  // its parser is running so the generated result stays inside this adapter.
+  self.postMessage = handleVendorMessage;
+  importScripts("/vendor/disalytics/parser-worker.js");
+  vendorOnMessage = self.onmessage;
+  self.onmessage = handleMessage;
+}
+
+async function handleLoad(message) {
+  if (!(message.buffer instanceof ArrayBuffer)) {
+    throw new Error("Demo worker load requires an ArrayBuffer");
+  }
+  parserHeader = null;
+  parsed = null;
+  currentLoad = {
+    buffer: message.buffer,
+    fileName: message.fileName,
+    fileSize: message.fileSize,
+    demoSha256: null,
+  };
+  post({ type: "reading", fileSize: message.fileSize });
+  ensureVendorWorkerProtocol();
+  post({ type: "parsing", stage: "events" });
+  const blob = new Blob([message.buffer]);
+  // The vendored worker only needs the File surface used by its stream reader.
+  await vendorOnMessage({
+    data: {
+      source: {
+        size: blob.size,
+        stream: () => blob.stream(),
+      },
+    },
+  });
+}
+
+function handleSelection(message) {
+  if (!parsed || !currentLoad?.raw) {
+    throw new Error("Demo worker has no inspected Demo");
+  }
+  post({
+    type: "parsing",
+    stage: "selected-tick",
+    tick: message.tick,
+  });
+  const selected = makeTickRows(
+    parsed.track,
+    message.tick,
+    message.roundNumber,
+    parsed.rounds,
+  );
+  post({
+    type: "selection",
+    roundNumber: message.roundNumber,
+    requestedTick: message.tick,
+    actualTick: selected.actualTick,
+    raw: {
+      ...currentLoad.raw,
+      roundNumber: message.roundNumber,
+      tick: selected.actualTick,
+      tickRows: selected.tickRows,
+      sideRows: selected.sideRows,
+    },
+  });
+}
+
+function handleMessage(event) {
+  const message = event.data;
+  if (message?.type === "reset") {
+    parsed = null;
+    parserHeader = null;
+    currentLoad = null;
+    return;
+  }
+  void (async () => {
+    try {
+      if (message?.type === "load") {
+        await handleLoad(message);
+        return;
+      }
+      if (message?.type === "select") {
+        handleSelection(message);
+        return;
+      }
+      throw new Error("unknown Demo worker message");
+    } catch (error) {
+      parserError(error);
+    }
+  })();
+}
+
+self.onmessage = handleMessage;

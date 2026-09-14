@@ -45,6 +45,11 @@ export type CurrentStatePreviewData = {
   source: Pick<NormalizedMatchState["source"], "demoFile" | "parserVersion" | "demoSha256">;
 };
 
+export type CurrentStatePreviewVisibility = {
+  visiblePlayerIds: readonly string[];
+  bombVisibility: "hidden" | "confirmed";
+};
+
 function resolveRenderCalibration(state: NormalizedMatchState): {
   asset: string;
   imageWidth: number;
@@ -83,9 +88,24 @@ function resolveRenderCalibration(state: NormalizedMatchState): {
   );
 }
 
-export function buildCurrentStatePreview(input: unknown): CurrentStatePreviewData {
+export function buildCurrentStatePreview(
+  input: unknown,
+  visibility?: CurrentStatePreviewVisibility,
+): CurrentStatePreviewData {
   const state = parseNormalizedMatchState(input);
   const render = resolveRenderCalibration(state);
+  const visiblePlayerIds = visibility
+    ? new Set(visibility.visiblePlayerIds)
+    : null;
+  const players = visiblePlayerIds
+    ? state.players.filter((player) => visiblePlayerIds.has(player.id))
+    : state.players;
+  const rawBomb = visibility?.bombVisibility === "hidden" ? null : state.bomb;
+  const carrierVisible =
+    rawBomb === null ||
+    rawBomb.carrierId === null ||
+    visiblePlayerIds === null ||
+    visiblePlayerIds.has(rawBomb.carrierId);
   return {
     kind: "current-match-state",
     map: state.map.name,
@@ -98,7 +118,7 @@ export function buildCurrentStatePreview(input: unknown): CurrentStatePreviewDat
     tick: state.tick,
     timeLabel: state.time.display,
     score: state.round.score,
-    players: state.players.map((player) => {
+    players: players.map((player) => {
       const position = worldToNormalizedPosition(player.worldPosition, state.map.overview);
       return {
         id: player.id,
@@ -119,9 +139,9 @@ export function buildCurrentStatePreview(input: unknown): CurrentStatePreviewDat
       };
     }),
     bomb: {
-      status: state.bomb.status,
-      carrierId: state.bomb.carrierId,
-      carrierName: state.bomb.carrierName,
+      status: rawBomb !== null && carrierVisible ? rawBomb.status : "unavailable",
+      carrierId: rawBomb !== null && carrierVisible ? rawBomb.carrierId : null,
+      carrierName: rawBomb !== null && carrierVisible ? rawBomb.carrierName : null,
     },
     source: {
       demoFile: state.source.demoFile,

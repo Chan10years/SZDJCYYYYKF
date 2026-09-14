@@ -9,7 +9,6 @@ import {
 } from "./schemas";
 import {
   assertAllQaChecksApproved,
-  buildPracticeFacts,
   ScenarioDraftSchema,
   type ScenarioDraft,
   type ScenarioDraftQaCheckId,
@@ -21,6 +20,15 @@ const HumanTextSchema = z.string().trim().min(1).max(500);
 const ImportedFactSchema = ScenarioFactSchema.extend({
   detail: HumanTextSchema,
 });
+
+export const ImportedObservableBoundarySchema = z
+  .object({
+    side: z.enum(["CT", "T"]),
+    visiblePlayerIds: z.array(z.string().trim().min(1)).min(1).max(5),
+    confirmed: z.literal(true),
+    bombVisibility: z.enum(["hidden", "confirmed"]),
+  })
+  .strict();
 
 export const ImportedScenarioAuthoringSchema = z
   .object({
@@ -41,6 +49,8 @@ export const ImportedScenarioAuthoringSchema = z
       })
       .strict(),
     professional: ProfessionalReferenceSchema,
+    /** Human QA boundary; the machine Draft remains complete, practice does not. */
+    perspective: ImportedObservableBoundarySchema,
     mapAsset: z.literal("/maps/Lite2_CurrentStateBase.png").nullable(),
   })
   .strict();
@@ -65,9 +75,41 @@ function buildPreview(note: string) {
 function buildImportedFacts(
   state: ScenarioDraft["normalizedMatchState"],
   authoring: ImportedScenarioAuthoring,
+  visiblePlayerIds: ReadonlySet<string>,
 ) {
+  const visiblePlayers = state.players.filter((player) =>
+    visiblePlayerIds.has(player.id),
+  );
+  const visibleAlive = visiblePlayers.filter((player) => player.alive).length;
+  const bombDetail =
+    authoring.perspective.bombVisibility === "confirmed"
+      ? state.bomb.status === "carried" &&
+        state.bomb.carrierId !== null &&
+        !visiblePlayerIds.has(state.bomb.carrierId)
+        ? "未知（C4 carrier 不属于已确认可见阵营）"
+        : state.bomb.status === "carried"
+          ? `由 ${state.bomb.carrierName ?? "已确认可见队员"} 携带`
+          : state.bomb.status
+      : "未知（Human QA 未确认该 perspective 可见 C4）";
   return [
-    ...buildPracticeFacts(state),
+    {
+      label: "比分",
+      detail: Object.entries(state.round.score)
+        .map(([team, score]) => `${team} ${score}`)
+        .join(" : "),
+    },
+    {
+      label: "截点",
+      detail: `Round ${state.round.number} · Tick ${state.tick} · ${state.time.display}`,
+    },
+    {
+      label: "存活",
+      detail: `${visibleAlive} ${authoring.perspective.side} · 仅该 perspective 可见`,
+    },
+    {
+      label: "C4",
+      detail: bombDetail,
+    },
     {
       label: `已确认 · ${authoring.knownFact.label}`,
       detail: authoring.knownFact.detail,
@@ -97,6 +139,18 @@ export function buildImportedPracticeScenario(
   const authoring = ImportedScenarioAuthoringSchema.parse(authoringInput);
   assertAllQaChecksApproved(approvedCheckIds);
   const state = draft.normalizedMatchState;
+  const visiblePlayerIds = new Set(authoring.perspective.visiblePlayerIds);
+  const visiblePlayers = state.players.filter((player) =>
+    visiblePlayerIds.has(player.id),
+  );
+  if (
+    visiblePlayers.length !== visiblePlayerIds.size ||
+    visiblePlayers.some((player) => player.side !== authoring.perspective.side)
+  ) {
+    throw new Error(
+      "observable boundary may only expose players from the confirmed perspective side",
+    );
+  }
 
   if (
     authoring.mapAsset !== null &&
@@ -123,9 +177,9 @@ export function buildImportedPracticeScenario(
     situation: {
       phase: `Round ${state.round.number} · parser round ${state.round.parserRound}`,
       time: state.time.display,
-      alive: `${state.players.filter((player) => player.side === "CT" && player.alive).length}v${state.players.filter((player) => player.side === "T" && player.alive).length}`,
+      alive: `${visiblePlayers.filter((player) => player.alive).length} ${authoring.perspective.side} · 仅该 perspective 可见`,
       objective: authoring.objectiveFraming,
-      facts: buildImportedFacts(state, authoring),
+      facts: buildImportedFacts(state, authoring, visiblePlayerIds),
     },
     calls: authoring.calls,
     reasonOptions: authoring.reasonOptions,

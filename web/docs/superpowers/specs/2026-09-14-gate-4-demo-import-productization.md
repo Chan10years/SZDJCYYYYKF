@@ -19,14 +19,15 @@ The imported Demo must be a new, previously unwired file. Machine recovery is li
 
 - The stable product entry is `ExperienceShell`; it already implements the Second Coach reducer and report flow.
 - The current Gate 1 page uses a fixed developer-authored JSON snapshot and a fixed authored `Scenario`. It does not expose Demo selection or node selection.
-- `ScenarioDraft` already separates the normalized machine snapshot and QA checks from the authored Scenario, but its current approval helper assumes an existing authored Scenario.
+- `ScenarioDraft` already separates the normalized machine snapshot and QA checks from the authored Scenario; imported approval additionally records a Human-confirmed observable boundary.
 - `NormalizedMatchState` requires strict provenance, ten unique players, round/time identity, bomb state, and an explicit source SHA-256.
 - `TacticalPreview` can show a current-state raster only when a map asset and calibration are explicitly available. An imported map without those assets must not receive a fabricated spatial preview.
 - Hero, Lite2, Lite3, the existing reducer, and the current Second Coach flow are out of scope for replacement.
+- A machine Draft may retain the complete selected-tick state for Human QA. The promoted practice Scenario and its optional current-state preview are filtered to the Human-confirmed training perspective before the user makes a judgment.
 
 ## Selected approach
 
-Use the official `demoparser2` WASM package in a dedicated Web Worker as the first path. The browser reads the user-selected local File, transfers its bytes to the Worker, and receives structured inspection data and a selected normalized snapshot. If the current official WASM build rejects a supported real Demo, the client explicitly switches to a bounded compatibility request handled by the existing Next application runtime, using the same real bytes and official native `@laihoe/demoparser2` binding. That compatibility path does not persist the Demo, write generated output, read a repository path, or substitute a fixture.
+Use a patched browser/WASM build of the existing `demoparser2` semantics in a dedicated Web Worker. The browser reads the user-selected local File, transfers its bytes to that Worker, and receives structured inspection data and a selected normalized snapshot. A local parser failure is a terminal, explicit `unsupported`/`error` state for this Gate: there is no server upload, native binding fallback, fixture fallback, or guessed state.
 
 The implementation will reuse the already validated `demoparser2` semantics and the repository's configurable extraction/normalization rules. It will add a thin browser adapter, not a second parser and not per-map parser scripts.
 
@@ -74,6 +75,7 @@ Human QA first confirms machine facts and then authors the required semantic fie
 - per-Call challenge guidance;
 - per-Call tactical preview annotations when a suitable map base exists;
 - Professional / Coach Reference and training framing.
+- training perspective and observable boundary: one CT/T side is confirmed as visible; opposing player state remains unknown; C4 visibility is separately confirmed or remains hidden.
 
 Empty semantic fields block approval. The UI must make it clear that these fields are human-authored and that parser output is not a tactical answer. Spatial preview is optional only when the relevant map asset/calibration is explicitly present; otherwise QA records that the visual is unavailable and the product uses the structured state path.
 
@@ -100,11 +102,11 @@ Existing Gate 1 callers and serialized fixtures must remain valid. Any schema ch
 - Worker messages are discriminated and validated at the boundary.
 - Parser exceptions, malformed output, unsupported maps, missing roster identity, and impossible state invariants become actionable UI errors.
 - Do not fall back from an invalid parse to a stale fixture or to guessed facts.
-- The implementation probes the exact installed WASM API and Next bundling behavior. The acceptance Demo is currently rejected by the upstream WASM build during full event/tick parsing, while the existing app runtime's official native binding parses it reliably. The compatibility request is a thin byte-in/JSON-out route inside the current Next app, not a new backend service, storage layer, queue, or parser implementation.
+- The client has one browser-local parser path with a bounded Worker timeout and explicit cancellation. Parser output is adapted only after the Worker returns; unsupported/error terminates that session and leaves the original file local.
 
 ### Evidence-based runtime correction
 
-The shipped browser asset is the official generated WASM package from `LaihoE/demoparser` revision `2d0f3b3a55d9830bef296e3f0003973fccf17849`. The product also depends directly on the official native `@laihoe/demoparser2@0.42.0` binding for the existing Next runtime. During Gate 4 acceptance, the WASM header path initialized, but the current P1 Demo failed during full event/tick parsing; the native binding returned the complete 13-round inspection and exact tick state. The UI exposes this as an explicit compatibility parser transition, with the same machine-only and no-future-facts boundaries.
+The shipped browser asset is the generated parser/WASM artifact from MIT-licensed `oleksii-latyshev/disalytics` revision `02afbf3c46541a27074a6fe919d18d50fc3253a2`, whose vendored parser pins LaihoE/demoparser revision `ba39cc44cd5abfd7f34df2b3c0a7dd3630048311`. It was probed against the previously failing 361 MB Mirage P1 Demo and completed locally with 13 rounds, kills, bomb plants, and a 16 Hz player track. The product-owned Worker is a thin protocol/normalization adapter and does not alter the generated asset.
 
 ## Map and tactical boundary
 
@@ -119,6 +121,7 @@ Awpy remains a research/reference option for future nav/visibility/region/grenad
 - full Dataset Platform or parser service;
 - automatic “interesting node” ranking or Candidate Engine;
 - automatic tactical semantic generation;
+- raw Demo upload fallback or server-side compatibility parsing;
 - replacing the reducer, training flow, Tactical Preview core, or stable content;
 - mass Scenario schema migration;
 - claiming compatibility with every CS2 Demo version or every map without evidence.
@@ -132,11 +135,11 @@ Use a real Demo that was not previously wired into the app, preferably the avail
 3. inspect multiple available Round/time nodes;
 4. select one node;
 5. verify the displayed normalized state against parser output and provenance;
-6. confirm the Draft remains draft and machine facts are labeled as such;
-7. complete Human QA with authored semantics;
+6. confirm the Draft remains draft, machine facts are labeled as such, and the full machine state is not automatically exposed in practice;
+7. complete Human QA with authored semantics and an observable boundary;
 8. enter the existing Second Coach and complete its normal flow without developer tools.
 
-Also demonstrate an unsupported/error case and verify that future information is not exposed: no later kill, outcome, professional result, or post-decision fact may be used in the Situation or machine Draft unless it is explicitly part of the selected pre-decision snapshot and user-known boundary.
+Also demonstrate an unsupported/error case and verify that no request is sent to `/api/demo-import`. Verify future-information and perspective leakage: no later kill, outcome, professional result, opposing player position/state, or hidden C4 carrier may be used in the practice Situation before the user's judgment.
 
 ## Verification plan
 

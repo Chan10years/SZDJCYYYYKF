@@ -51,6 +51,14 @@ const authoring: ImportedScenarioAuthoring = {
     outcome: "Coach Reference：此处仅记录人工参考路径。",
     observations: ["先写清未知信息，再讨论是否值得等待。"],
   },
+  perspective: {
+    side: "T",
+    visiblePlayerIds: normalizedMatchState.players
+      .filter((player) => player.side === "T")
+      .map((player) => player.id),
+    confirmed: true,
+    bombVisibility: "hidden",
+  },
   mapAsset: null,
 };
 
@@ -76,6 +84,12 @@ describe("imported machine-only Draft promotion", () => {
         expect.objectContaining({ label: "截点" }),
       ]),
     );
+    expect(scenario.situation.facts).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ detail: expect.stringContaining("magixx") }),
+      ]),
+    );
+    expect(scenario.situation.alive).toBe("5 T · 仅该 perspective 可见");
     expect(scenario.previewByCall.A.metrics).toEqual([
       {
         label: "路线 / 区域（Human QA）",

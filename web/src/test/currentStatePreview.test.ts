@@ -42,6 +42,31 @@ describe("current-state Tactical Preview adapter", () => {
     )).toBe(true);
   });
 
+  it("filters current-state facts to the Human-QA-approved perspective", async () => {
+    const adapter = await loadAdapter();
+    const fixture = await loadFixture();
+    expect(adapter).not.toBeNull();
+    expect(fixture).not.toBeNull();
+    if (!adapter || !fixture) return;
+
+    const visiblePlayerIds = fixture.players
+      .filter((player) => player.side === "T")
+      .map((player) => player.id);
+    const preview = adapter.buildCurrentStatePreview(fixture, {
+      visiblePlayerIds,
+      bombVisibility: "hidden",
+    });
+
+    expect(preview.players.map((player) => player.id)).toEqual(visiblePlayerIds);
+    expect(preview.players.every((player) => player.side === "T")).toBe(true);
+    expect(preview.players.some((player) => player.name === "huNter-")).toBe(false);
+    expect(preview.bomb).toEqual({
+      status: "unavailable",
+      carrierId: null,
+      carrierName: null,
+    });
+  });
+
   it("does not mutate authored Scenario preview semantics", async () => {
     const adapter = await loadAdapter();
     const fixture = await loadFixture();

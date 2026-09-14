@@ -1,6 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-import { buildDemoImportInspection, buildDemoImportNormalizedState } from "@/domain/demoImportAdapter";
-import type { DemoParserInspectionInput } from "@/domain/demoImportAdapter";
+import { describe, expect, it } from "vitest";
 import { DemoImportClient } from "@/lib/demoImportClient";
 
 const SHA = "A".repeat(64);
@@ -68,25 +66,9 @@ function makeRaw() {
   };
 }
 
-function makeInspection() {
-  const raw = makeRaw();
-  const input: DemoParserInspectionInput = {
-    fileName: "new-match.dem",
-    fileSize: 15,
-    demoSha256: SHA,
-    header: raw.header,
-    playerFirstConnectEvents: raw.playerFirstConnectEvents,
-    roundStartEvents: raw.roundStartEvents,
-    roundFreezeEndEvents: raw.roundFreezeEndEvents,
-    roundEndEvents: raw.roundEndEvents,
-    killEvents: raw.killEvents,
-    bombEvents: raw.bombEvents,
-  };
-  return buildDemoImportInspection(input);
-}
-
 class FakeWorker {
   private listeners = new Set<(event: MessageEvent) => void>();
+  terminated = false;
   constructor(private readonly failLoad = false) {}
 
   addEventListener(type: string, listener: (event: MessageEvent) => void) {
@@ -98,7 +80,9 @@ class FakeWorker {
   }
 
   postMessage(message: { type: string; roundNumber?: number; tick?: number }) {
+    if (this.terminated) return;
     queueMicrotask(() => {
+      if (this.terminated) return;
       if (message.type === "load") {
         if (this.failLoad) {
           this.emit({ type: "error", code: "unsupported" });
@@ -118,7 +102,9 @@ class FakeWorker {
     });
   }
 
-  terminate() {}
+  terminate() {
+    this.terminated = true;
+  }
 
   private emit(data: unknown) {
     const event = { data } as MessageEvent;
@@ -126,11 +112,21 @@ class FakeWorker {
   }
 }
 
+class StalledWorker extends FakeWorker {
+  constructor() {
+    super(false);
+  }
+
+  postMessage() {
+    // Deliberately leave the request pending so timeout and cancellation are
+    // observable at the client boundary.
+  }
+}
+
 describe("DemoImportClient", () => {
   it("loads a new Demo locally and requests an arbitrary exact tick", async () => {
     const client = new DemoImportClient({
       workerFactory: () => new FakeWorker(),
-      fetchImpl: vi.fn(),
     });
     const file = new File([new Uint8Array(15)], "new-match.dem");
 
@@ -143,56 +139,44 @@ describe("DemoImportClient", () => {
     expect(selected.normalizedMatchState.tick).toBe(5555);
   });
 
-  it("switches explicitly to the compatibility parser when local WASM is unsupported", async () => {
-    const inspection = makeInspection();
-    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const form = init?.body as FormData;
-      if (form.get("action") === "inspect") {
-        return Response.json({ kind: "inspection", inspection });
-      }
-      const raw = makeRaw();
-      const state = buildDemoImportNormalizedState({
-        fileName: "new-match.dem",
-        fileSize: 15,
-        demoSha256: SHA,
-        header: raw.header,
-        playerFirstConnectEvents: raw.playerFirstConnectEvents,
-        roundStartEvents: raw.roundStartEvents,
-        roundFreezeEndEvents: raw.roundFreezeEndEvents,
-        roundEndEvents: raw.roundEndEvents,
-        killEvents: raw.killEvents,
-        bombEvents: raw.bombEvents,
-        roundNumber: 1,
-        tick: 5555,
-        tickRows: raw.tickRows,
-      });
-      return Response.json({ kind: "selection", inspection, normalizedMatchState: state });
-    });
+  it("surfaces local parser unsupported without uploading the Demo", async () => {
     const client = new DemoImportClient({
       workerFactory: () => new FakeWorker(true),
-      fetchImpl,
-    });
-
-    const loaded = await client.load(new File([new Uint8Array(15)], "new-match.dem"));
-    expect(loaded.mode).toBe("compatibility");
-    expect(loaded.inspection.matchLabel).toBe("new server");
-
-    const selected = await client.select(1, 5555);
-    expect(selected.mode).toBe("compatibility");
-    expect(selected.normalizedMatchState.source.demoSha256).toBe(SHA);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-  });
-
-  it("surfaces malformed or unsupported compatibility responses without fixture fallback", async () => {
-    const fetchImpl = vi.fn(async () => Response.json({ kind: "not-a-real-response" }, { status: 422 }));
-    const client = new DemoImportClient({
-      workerFactory: () => new FakeWorker(true),
-      fetchImpl,
     });
 
     await expect(
       client.load(new File([new Uint8Array(15)], "new-match.dem")),
-    ).rejects.toThrow(/无法读取|response|parser/i);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    ).rejects.toThrow(/本地|上传|支持/);
+  });
+
+  it("terminates a stalled local parser at the timeout boundary", async () => {
+    const worker = new StalledWorker();
+    const client = new DemoImportClient({
+      workerFactory: () => worker,
+      workerTimeoutMs: 5,
+    });
+
+    await expect(
+      client.load(new File([new Uint8Array(15)], "stalled.dem")),
+    ).rejects.toThrow(/超时|本地|支持/);
+    expect(worker.terminated).toBe(true);
+  });
+
+  it("cancels a pending local parse and ignores stale worker output", async () => {
+    const worker = new StalledWorker();
+    const client = new DemoImportClient({
+      workerFactory: () => worker,
+      workerTimeoutMs: 1000,
+    });
+    const loading = client.load(new File([new Uint8Array(15)], "cancel.dem"));
+    const cancelled = loading.catch((error: unknown) => {
+      expect(error).toMatchObject({ name: "DemoImportCancelledError" });
+      expect(error).toHaveProperty("message", "已取消 Demo 解析");
+    });
+
+    client.cancel();
+
+    await cancelled;
+    expect(worker.terminated).toBe(true);
   });
 });

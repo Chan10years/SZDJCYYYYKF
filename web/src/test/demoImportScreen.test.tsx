@@ -81,6 +81,7 @@ function makeClient(): DemoImportClientLike {
     load: vi.fn(async () => ({ inspection, mode: "browser-local" as const })),
     select: vi.fn(async () => ({ normalizedMatchState, mode: "browser-local" as const })),
     reset: vi.fn(),
+    cancel: vi.fn(),
   };
 }
 
@@ -112,6 +113,7 @@ describe("DemoImportScreen", () => {
     fillById("import-known-detail", "Demo 截点确认当前玩家状态。");
     fillById("import-unknown-label", "未知空间");
     fillById("import-unknown-detail", "对手未暴露位置仍需人工核对。");
+    await user.click(screen.getByTestId("import-observable-confirm"));
     for (const id of ["A", "B", "C"]) {
       fillById(`import-call-${id}-label`, `方案 ${id}`);
       fillById(`import-call-${id}-description`, `人工描述方案 ${id}`);
@@ -142,6 +144,7 @@ describe("DemoImportScreen", () => {
       load: vi.fn(async () => { throw new Error("这场 Demo 当前无法读取"); }),
       select: vi.fn(),
       reset: vi.fn(),
+      cancel: vi.fn(),
     };
     render(<DemoImportScreen clientFactory={() => client} />);
     await user.upload(screen.getByTestId("demo-import-input"), new File([new Uint8Array(15)], "broken.dem"));

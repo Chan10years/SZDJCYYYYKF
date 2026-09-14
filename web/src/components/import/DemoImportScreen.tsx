@@ -25,6 +25,7 @@ import {
 import type { CallId, ReasonId, Scenario } from "@/domain/types";
 import {
   DemoImportClient,
+  DemoImportCancelledError,
   type DemoImportClientLike,
   type DemoImportLoadResult,
   type DemoImportProgress,
@@ -65,6 +66,9 @@ type AuthoringForm = {
   professionalOutcome: string;
   professionalObservations: [string, string, string];
   useMirageRaster: boolean;
+  perspectiveSide: "CT" | "T";
+  observableConfirmed: boolean;
+  observableBombVisible: boolean;
 };
 
 function emptyGuidance(): EditableGuidance {
@@ -92,6 +96,9 @@ function initialAuthoringForm(): AuthoringForm {
     professionalOutcome: "",
     professionalObservations: ["", "", ""],
     useMirageRaster: false,
+    perspectiveSide: "T",
+    observableConfirmed: false,
+    observableBombVisible: false,
   };
 }
 
@@ -108,7 +115,7 @@ function errorMessage(error: unknown): string {
 }
 
 function estimateRoundClock(round: DemoImportRound, tick: number): string {
-  const elapsed = Math.max(0, (tick - round.startTick) / round.tickrate);
+  const elapsed = Math.max(0, (tick - round.freezeEndTick) / round.tickrate);
   return formatDemoClock(Math.max(0, round.durationSeconds - elapsed));
 }
 
@@ -288,6 +295,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
       setSelectedTick(firstRound.minSelectableTick);
       setAuthoring(initialAuthoringForm());
     } catch (loadError) {
+      if (loadError instanceof DemoImportCancelledError) return;
       setProgress({ status: "error", message: "导入失败" });
       setError(errorMessage(loadError));
     }
@@ -303,6 +311,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
     Number.isInteger(selectedTick) &&
     selectedTick >= selectedRound.minSelectableTick &&
     selectedTick <= selectedRound.maxSelectableTick;
+  const selectedTickStep = selectedRound?.tickStep ?? 1;
 
   const visibleMarkers = useMemo(() => {
     if (!inspection || !selectedRound || !selectedTickIsValid) return [];
@@ -336,6 +345,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
       setPracticeScenario(null);
       setPracticeCurrentState(null);
     } catch (selectionError) {
+      if (selectionError instanceof DemoImportCancelledError) return;
       setProgress({ status: "error", message: "无法恢复所选 tick" });
       setError(errorMessage(selectionError));
     }
@@ -376,6 +386,11 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
 
   function toAuthoring(): ImportedScenarioAuthoring {
     if (!draft) throw new Error("Draft 尚未生成");
+    if (!authoring.observableConfirmed) {
+      throw new Error(
+        "请先确认 practice 只暴露该 perspective 的可见信息；对手位置与状态保持未知。",
+      );
+    }
     const reasonIds = authoring.reasonOptions.map((reason) => reason.id);
     if (new Set(reasonIds).size !== reasonIds.length) {
       throw new Error("Human QA 的依据选项不能重复。");
@@ -396,6 +411,14 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
         pathLabel: authoring.professionalPathLabel,
         outcome: authoring.professionalOutcome,
         observations: authoring.professionalObservations.filter((value) => value.trim().length > 0),
+      },
+      perspective: {
+        side: authoring.perspectiveSide,
+        visiblePlayerIds: draft.normalizedMatchState.players
+          .filter((player) => player.side === authoring.perspectiveSide)
+          .map((player) => player.id),
+        confirmed: true,
+        bombVisibility: authoring.observableBombVisible ? "confirmed" : "hidden",
       },
       mapAsset:
         authoring.useMirageRaster && draft.normalizedMatchState.map.name === "de_mirage"
@@ -420,6 +443,9 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
               ...draft.normalizedMatchState.map,
               asset: "/maps/Lite2_Map.png",
             },
+          }, {
+            visiblePlayerIds: authoringPayload.perspective.visiblePlayerIds,
+            bombVisibility: authoringPayload.perspective.bombVisibility,
           })
         : null;
       setPracticeScenario(promoted);
@@ -454,12 +480,18 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
   const loading = progress.status === "reading" || progress.status === "parsing";
   const allChecksApproved = SCENARIO_DRAFT_QA_CHECK_IDS.every((id) => approvedChecks.has(id));
 
+  function cancelImport(): void {
+    getClient().cancel();
+    setProgress({ status: "idle", message: "" });
+    setError(null);
+  }
+
   return (
     <PageFrame family="spatial" eyebrow="02 · DROP DEMO → REVIEW DECISIONS">
       <main className="flex flex-col gap-6 py-5 lg:gap-8 lg:py-7">
         <header className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-4">
-            <MetadataStrip items={[<span key="product">CONNECTED DECISIONS</span>, <span key="parser">{progress.mode === "compatibility" ? "兼容 parser" : "demoparser2"}</span>]} />
+            <MetadataStrip items={[<span key="product">CONNECTED DECISIONS</span>, <span key="parser">browser-local demoparser2</span>]} />
             <Link href="/" className="text-xs text-app-muted underline-offset-4 hover:text-app-text hover:underline">
               返回首页
             </Link>
@@ -484,7 +516,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
             <div className="flex flex-col gap-2">
               <h2 className="text-lg font-semibold text-app-text">Drop Demo → Review Decisions</h2>
               <p className="max-w-md text-sm leading-relaxed text-app-muted">
-                默认先在当前浏览器 Worker 中尝试；如果当前 Demo 版本不适合 WASM，会明确切换到应用已有的兼容 parser。全过程不需要开发工具。
+                文件只在当前浏览器 Worker 中解析；当前本地 parser 不支持时会明确报错，不上传原始 Demo，也不替换成 fixture。全过程不需要开发工具。
               </p>
             </div>
             <label htmlFor="demo-import-input" className="flex h-11 cursor-pointer items-center rounded-md bg-app-text px-8 text-sm font-medium text-app-bg hover:opacity-90">
@@ -504,8 +536,15 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
 
         {loading && (
           <section aria-live="polite" className="border-y border-app-line py-5" data-testid="demo-import-progress">
-            <p className="text-sm text-app-text">{progress.message}</p>
-            <p className="mt-1 font-mono text-xs text-app-muted">{progress.mode === "compatibility" ? "compatibility parser" : "browser worker"}</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-app-text">{progress.message}</p>
+                <p className="mt-1 font-mono text-xs text-app-muted">browser-local worker · 原始文件不会上传</p>
+              </div>
+              <button type="button" data-testid="demo-import-cancel" onClick={cancelImport} className="h-9 rounded-md border border-app-line px-3 text-xs text-app-muted hover:border-app-muted hover:text-app-text">
+                取消解析
+              </button>
+            </div>
           </section>
         )}
 
@@ -565,7 +604,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
               <section aria-labelledby="tick-picker-heading" className="flex flex-col gap-4">
                 <div>
                   <h3 id="tick-picker-heading" className="text-base font-semibold text-app-text">R{selectedRound.number} · 任意时间截点</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-app-muted">范围从 freeze end 开始，到 Round 结束前一个 tick。Round 结果不会成为可选状态。</p>
+                  <p className="mt-1 text-xs leading-relaxed text-app-muted">范围从 freeze end 开始，到 Round 结束前一个 tick。Round 结果不会成为可选状态；当前 parser 的可选 tick 间隔为 {selectedTickStep}。</p>
                 </div>
                 <div className="flex flex-col gap-2 rounded-lg border border-app-line bg-app-surface px-4 py-4">
                   <div className="flex items-baseline justify-between gap-3">
@@ -578,7 +617,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
                     type="range"
                     min={selectedRound.minSelectableTick}
                     max={selectedRound.maxSelectableTick}
-                    step={1}
+                    step={selectedTickStep}
                     value={selectedTick}
                     onChange={(event) => { setSelectedTick(Number(event.target.value)); setDraft(null); }}
                     className="w-full accent-[#dfa45b]"
@@ -596,7 +635,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
                       type="number"
                       min={selectedRound.minSelectableTick}
                       max={selectedRound.maxSelectableTick}
-                      step={1}
+                      step={selectedTickStep}
                       value={selectedTick}
                       onChange={(event) => { setSelectedTick(Number(event.target.value)); setDraft(null); }}
                       className="h-9 w-36 rounded-md border border-app-line bg-transparent px-2 text-right font-mono text-sm text-app-text outline-none focus:border-app-user"
@@ -619,7 +658,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
                           key={`${marker.kind}-${marker.tick}`}
                           type="button"
                           data-testid={`demo-marker-${marker.tick}`}
-                          onClick={() => setSelectedTick(marker.tick)}
+                          onClick={() => setSelectedTick(Math.min(selectedRound.maxSelectableTick, Math.max(selectedRound.minSelectableTick, Math.ceil(marker.tick / selectedTickStep) * selectedTickStep)))}
                           className="rounded-full border border-app-line px-2.5 py-1.5 text-[11px] text-app-muted hover:border-app-muted hover:text-app-text"
                         >
                           {marker.label} · <span className="font-mono">{marker.tick}</span>
@@ -673,6 +712,28 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
                 <h2 id="human-semantics-heading" className="text-xl font-semibold text-app-text">Human QA：补齐决策语义</h2>
                 <p className="mt-1 text-xs leading-relaxed text-app-muted">所有输入都属于人工内容；不要把未知内容写成 Demo 原生事实。</p>
               </div>
+
+              <section className="flex flex-col gap-3 border-y border-[#6fb3c9]/30 bg-[#6fb3c9]/5 py-4" aria-labelledby="observable-boundary-heading">
+                <div>
+                  <h3 id="observable-boundary-heading" className="text-sm font-semibold text-app-text">训练 perspective / observable boundary</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-app-muted">机器 Draft 保留完整十人状态供 Human QA 核对；进入 practice 后只展示你确认属于该 perspective 的阵营。对手位置、血量、武器与 C4 carrier 不会在判断前自动暴露。</p>
+                </div>
+                <label htmlFor="import-perspective-side" className="flex max-w-xs flex-col gap-1.5 text-xs font-medium text-app-text">
+                  用户训练 perspective
+                  <select id="import-perspective-side" value={authoring.perspectiveSide} onChange={(event) => setAuthoring((current) => ({ ...current, perspectiveSide: event.target.value as "CT" | "T" }))} className="h-10 rounded-md border border-app-line bg-app-bg px-2 text-xs text-app-text outline-none focus:border-app-user">
+                    <option value="T">T side · 进攻 perspective</option>
+                    <option value="CT">CT side · 防守 perspective</option>
+                  </select>
+                </label>
+                <label className="flex cursor-pointer gap-3 rounded-md border border-app-line p-3 text-xs leading-relaxed text-app-text">
+                  <input type="checkbox" data-testid="import-observable-confirm" checked={authoring.observableConfirmed} onChange={(event) => setAuthoring((current) => ({ ...current, observableConfirmed: event.target.checked }))} className="mt-0.5 h-4 w-4 accent-[#6fb3c9]" />
+                  <span>我已确认 practice 只显示所选阵营的可见状态；对手位置、状态和未确认信息保持 Unknown。</span>
+                </label>
+                <label className="flex cursor-pointer gap-3 rounded-md border border-app-line p-3 text-xs leading-relaxed text-app-text">
+                  <input type="checkbox" data-testid="import-observable-bomb" checked={authoring.observableBombVisible} onChange={(event) => setAuthoring((current) => ({ ...current, observableBombVisible: event.target.checked }))} className="mt-0.5 h-4 w-4 accent-[#dfa45b]" />
+                  <span>我另外确认该 perspective 在此截点确实知道 C4 状态；否则保持 Unknown（默认）。</span>
+                </label>
+              </section>
 
               <div className="grid gap-5 lg:grid-cols-2">
                 <section className="flex flex-col gap-3 border-y border-app-line py-4">

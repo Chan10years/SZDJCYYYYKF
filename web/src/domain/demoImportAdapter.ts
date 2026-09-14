@@ -18,7 +18,7 @@ import {
 } from "./coordinateAdapter";
 
 export const DEMO_IMPORT_PARSER = "demoparser2" as const;
-export const DEMO_IMPORT_PARSER_VERSION = "0.42.0" as const;
+export const DEMO_IMPORT_PARSER_VERSION = "browser-patched-ba39cc4" as const;
 export const DEMO_IMPORT_ROUND_DURATION_SECONDS = 115;
 
 export type ParserRecord = Record<string, unknown>;
@@ -34,6 +34,8 @@ export type DemoParserInspectionInput = {
   roundEndEvents: readonly unknown[];
   killEvents?: readonly unknown[];
   bombEvents?: readonly unknown[];
+  /** Browser parser sample interval, expressed in source ticks. */
+  selectionTickStep?: number;
 };
 
 export type DemoParserSelectionInput = DemoParserInspectionInput & {
@@ -46,8 +48,8 @@ export type DemoParserSelectionInput = DemoParserInspectionInput & {
 
 type RoundEvent = ParserRecord & {
   tick: number;
-  roundNumber: number;
-  parserRound: number;
+  roundNumber: number | null;
+  parserRound: number | null;
   gameTime: number;
 };
 
@@ -214,7 +216,7 @@ function readSide(record: ParserRecord, label: string): "CT" | "T" {
 function readEventRound(
   record: ParserRecord,
   fallbackRoundNumber: number | null = null,
-): { roundNumber: number; parserRound: number } {
+): { roundNumber: number | null; parserRound: number | null } {
   const round = readNumber(record, ["round"], "round", {
     required: false,
     integer: true,
@@ -231,13 +233,14 @@ function readEventRound(
       : parserRound !== null && parserRound >= 0
         ? parserRound + 1
         : fallbackRoundNumber;
-  if (roundNumber === null || roundNumber < 1) {
-    throw new Error("parser event does not identify a human Round");
-  }
   return {
-    roundNumber,
+    roundNumber: roundNumber !== null && roundNumber >= 1 ? roundNumber : null,
     parserRound:
-      parserRound !== null && parserRound >= 0 ? parserRound : roundNumber - 1,
+      parserRound !== null && parserRound >= 0
+        ? parserRound
+        : roundNumber !== null && roundNumber >= 1
+          ? roundNumber - 1
+          : null,
   };
 }
 
@@ -288,75 +291,135 @@ function inferTickrate(roundStarts: readonly RoundEvent[]): number {
   ) / 100;
 }
 
-function matchRoundEvent(
+function firstEventBetween(
   events: readonly RoundEvent[],
-  round: RoundEvent,
-  fallbackIndex: number,
+  lowerExclusive: number,
+  upperExclusive: number,
 ): RoundEvent | null {
   return (
     events.find(
       (event) =>
-        event.tick > round.tick &&
-        event.roundNumber === round.roundNumber,
-    ) ??
-    events.find(
-      (event) =>
-        event.tick > round.tick && event.parserRound === round.parserRound,
-    ) ?? events[fallbackIndex] ?? null
+        event.tick > lowerExclusive && event.tick < upperExclusive,
+    ) ?? null
   );
+}
+
+function dedupeBoundaryEvents(events: readonly RoundEvent[]): RoundEvent[] {
+  const deduped: RoundEvent[] = [];
+  const ordered = [...events].sort((a, b) => a.tick - b.tick);
+  for (const event of ordered) {
+    const previous = deduped[deduped.length - 1];
+    if (!previous || previous.tick !== event.tick) {
+      deduped.push(event);
+      continue;
+    }
+    // Duplicate parser notifications can carry different optional metadata.
+    // Keep the record with the most useful round identity, never duplicate a
+    // human boundary at the same tick.
+    if (previous.roundNumber === null && event.roundNumber !== null) {
+      deduped[deduped.length - 1] = event;
+    }
+  }
+  return deduped;
+}
+
+function selectableTickRange(
+  freezeTick: number,
+  endTick: number | null,
+  nextStartTick: number | null,
+  tickStep: number,
+  tickrate: number,
+): { min: number; max: number } {
+  const min = Math.ceil(freezeTick / tickStep) * tickStep;
+  const lastAllowed = endTick
+    ? endTick - 1
+    : nextStartTick
+      ? nextStartTick - 1
+      : freezeTick +
+        Math.floor(DEMO_IMPORT_ROUND_DURATION_SECONDS * tickrate) -
+        1;
+  const max = Math.floor(lastAllowed / tickStep) * tickStep;
+  return { min, max };
 }
 
 function createRoundDescriptors(
   input: DemoParserInspectionInput,
 ): DemoImportRound[] {
-  const starts = asRecords(input.roundStartEvents, "round_start")
-    .filter((event) => event.is_warmup_period !== true)
-    .map((event) => normalizeEvent(event, "round_start"))
-    .filter((event) => event.roundNumber >= 1)
-    .sort((a, b) => a.tick - b.tick);
-  const freezes = asRecords(input.roundFreezeEndEvents, "round_freeze_end")
-    .map((event) => normalizeEvent(event, "round_freeze_end"))
-    .sort((a, b) => a.tick - b.tick);
-  const ends = asRecords(input.roundEndEvents, "round_end")
-    .filter((event) => event.is_warmup_period !== true)
-    .map((event) => normalizeEvent(event, "round_end"))
-    .sort((a, b) => a.tick - b.tick);
+  const starts = dedupeBoundaryEvents(
+    asRecords(input.roundStartEvents, "round_start")
+      .filter((event) => event.is_warmup_period !== true)
+      .map((event) => normalizeEvent(event, "round_start")),
+  );
+  const freezes = dedupeBoundaryEvents(
+    asRecords(input.roundFreezeEndEvents, "round_freeze_end").map((event) =>
+      normalizeEvent(event, "round_freeze_end"),
+    ),
+  );
+  const ends = dedupeBoundaryEvents(
+    asRecords(input.roundEndEvents, "round_end")
+      .filter((event) => event.is_warmup_period !== true)
+      .map((event) => normalizeEvent(event, "round_end")),
+  );
 
   if (starts.length === 0 || freezes.length === 0) {
     throw new Error("Demo does not contain enough round boundary events");
   }
 
   const tickrate = inferTickrate(starts);
-  const rounds = starts.flatMap((start, index) => {
-    const freeze = matchRoundEvent(freezes, start, index);
-    if (!freeze || freeze.tick < start.tick) {
-      return [];
-    }
-    const end = matchRoundEvent(ends, start, index);
-    const nextStart = starts[index + 1];
-    const maxSelectableTick = end
-      ? end.tick - 1
-      : nextStart
-        ? nextStart.tick - 1
-        : freeze.tick +
-          Math.floor(DEMO_IMPORT_ROUND_DURATION_SECONDS * tickrate) -
-          1;
-    if (maxSelectableTick < freeze.tick) {
+  const tickStep = input.selectionTickStep ?? 1;
+  if (!Number.isInteger(tickStep) || tickStep < 1) {
+    throw new Error("selectionTickStep must be a positive integer");
+  }
+
+  // A valid round start must own a freeze-end before the next raw start. This
+  // removes the duplicate `round_start`/`round_end` notifications seen in
+  // current CS2 demos without trusting their optional round fields.
+  const candidates = starts.flatMap((start, index) => {
+    const nextRawStartTick = starts[index + 1]?.tick ?? Number.POSITIVE_INFINITY;
+    const freeze = freezes.find(
+      (event) =>
+        event.tick >= start.tick && event.tick < nextRawStartTick,
+    );
+    return freeze ? [{ start, freeze }] : [];
+  });
+
+  const rounds = candidates.flatMap(({ start, freeze }, index) => {
+    const previousRound = index > 0 ? candidates[index - 1].start : null;
+    const roundNumber =
+      start.roundNumber ??
+      (start.parserRound !== null ? start.parserRound + 1 : null) ??
+      ((previousRound?.roundNumber ?? index) + 1);
+    const parserRound = start.parserRound ?? roundNumber - 1;
+    const nextStartTick = candidates[index + 1]?.start.tick ?? null;
+    const end = firstEventBetween(
+      ends,
+      freeze.tick,
+      nextStartTick ?? Number.POSITIVE_INFINITY,
+    );
+    const range = selectableTickRange(
+      freeze.tick,
+      end?.tick ?? null,
+      nextStartTick,
+      tickStep,
+      tickrate,
+    );
+    if (range.max < range.min) {
       return [];
     }
     return [
       DemoImportRoundSchema.parse({
-        number: start.roundNumber,
-        parserRound: start.parserRound,
+        number: roundNumber,
+        parserRound,
         startTick: start.tick,
         freezeEndTick: freeze.tick,
         endTick: end?.tick ?? null,
-        minSelectableTick: freeze.tick,
-        maxSelectableTick,
+        minSelectableTick: range.min,
+        maxSelectableTick: range.max,
         startGameTime: start.gameTime,
         freezeEndGameTime: freeze.gameTime,
         endGameTime: end?.gameTime ?? null,
         tickrate,
+        ...(tickStep > 1 ? { tickStep } : {}),
         durationSeconds: DEMO_IMPORT_ROUND_DURATION_SECONDS,
       }),
     ];
@@ -366,6 +429,21 @@ function createRoundDescriptors(
     throw new Error("Demo does not contain a selectable Round");
   }
   return rounds;
+}
+
+function findRoundForTick(
+  rounds: readonly DemoImportRound[],
+  tick: number,
+): DemoImportRound | null {
+  for (let index = rounds.length - 1; index >= 0; index -= 1) {
+    const round = rounds[index];
+    const nextRound = rounds[index + 1];
+    const upperBound = round.endTick ?? nextRound?.startTick ?? Number.POSITIVE_INFINITY;
+    if (tick >= round.startTick && tick < upperBound) {
+      return round;
+    }
+  }
+  return null;
 }
 
 function buildInspectionMarkers(
@@ -393,9 +471,10 @@ function buildInspectionMarkers(
   return entries
     .flatMap(({ kind, record }) => {
       const event = normalizeEvent(record, kind);
-      const round = rounds.find(
-        (candidate) => candidate.number === event.roundNumber,
-      );
+      const round = findRoundForTick(rounds, event.tick) ??
+        (event.roundNumber === null
+          ? null
+          : rounds.find((candidate) => candidate.number === event.roundNumber) ?? null);
       if (
         !round ||
         event.tick < round.startTick ||
@@ -416,7 +495,7 @@ function buildInspectionMarkers(
       return [
         {
           kind,
-          roundNumber: event.roundNumber,
+          roundNumber: round.number,
           tick: event.tick,
           label: labels[kind],
           navigationOnly: true as const,
@@ -434,12 +513,14 @@ function readHeader(input: unknown): Header {
       header,
       ["demo_version_name", "demoVersion"],
       "demo_version_name",
-    ),
+      { required: false },
+    ) ?? "未由浏览器 parser 提供",
     patchVersion: readString(
       header,
       ["patch_version", "network_protocol", "patchVersion"],
       "patch_version",
-    ),
+      { required: false },
+    ) ?? "未由浏览器 parser 提供",
     serverName:
       readString(header, ["server_name", "serverName"], "server_name", {
         required: false,
@@ -609,7 +690,7 @@ function foldBombState(
   };
   const events = asRecords(input.bombEvents ?? [], "bomb events")
     .map((record) => {
-      const event = normalizeEvent(record, "bomb event", selectedRound.number);
+      const event = normalizeEvent(record, "bomb event");
       return {
         record,
         event,
@@ -617,7 +698,8 @@ function foldBombState(
     })
     .filter(
       ({ event }) =>
-        event.roundNumber === selectedRound.number &&
+        event.tick >= selectedRound.startTick &&
+        (selectedRound.endTick === null || event.tick < selectedRound.endTick) &&
         event.tick <= input.tick,
     )
     .sort((a, b) => a.event.tick - b.event.tick);
@@ -667,11 +749,14 @@ function foldBombState(
 function buildScore(
   input: DemoParserSelectionInput,
   selectedRound: DemoImportRound,
+  rounds: readonly DemoImportRound[],
 ): Record<string, number> {
   const score: Record<string, number> = { "T side": 0, "CT side": 0 };
   for (const record of asRecords(input.roundEndEvents, "round_end")) {
     const event = normalizeEvent(record, "round_end");
-    if (event.roundNumber >= selectedRound.number) {
+    const temporalRound = findRoundForTick(rounds, event.tick);
+    const eventRoundNumber = temporalRound?.number ?? event.roundNumber;
+    if (eventRoundNumber === null || eventRoundNumber >= selectedRound.number) {
       continue;
     }
     const winner = readString(record, ["winner"], "round_end.winner", {
@@ -689,18 +774,18 @@ function buildNormalizedTime(
   gameTime: number,
   bomb: BombState,
 ) {
-  const elapsedSeconds = Math.max(0, gameTime - selectedRound.startGameTime);
+  const elapsedSeconds = Math.max(0, gameTime - selectedRound.freezeEndGameTime);
   if (bomb.status === "planted" && bomb.plantGameTime !== null) {
     const postPlantElapsedSeconds = Math.max(0, gameTime - bomb.plantGameTime);
     return {
-      display: `爆炸后 ${formatDemoClock(postPlantElapsedSeconds)}`,
+      display: `下包后 ${formatDemoClock(postPlantElapsedSeconds)}`,
       semantics: "post_plant_elapsed" as const,
       remainingSeconds: null,
       elapsedSeconds,
       postPlantElapsedSeconds,
       roundDurationSeconds: DEMO_IMPORT_ROUND_DURATION_SECONDS,
-      roundStartTick: selectedRound.startTick,
-      roundStartGameTime: selectedRound.startGameTime,
+      roundStartTick: selectedRound.freezeEndTick,
+      roundStartGameTime: selectedRound.freezeEndGameTime,
       gameTime,
       tickrate: selectedRound.tickrate,
       warningTick: null,
@@ -718,8 +803,8 @@ function buildNormalizedTime(
     elapsedSeconds,
     postPlantElapsedSeconds: null,
     roundDurationSeconds: selectedRound.durationSeconds,
-    roundStartTick: selectedRound.startTick,
-    roundStartGameTime: selectedRound.startGameTime,
+    roundStartTick: selectedRound.freezeEndTick,
+    roundStartGameTime: selectedRound.freezeEndGameTime,
     gameTime,
     tickrate: selectedRound.tickrate,
     warningTick: null,
@@ -754,7 +839,7 @@ export function buildDemoImportNormalizedState(
     },
   } as const;
   const header = readHeader(input.header);
-  const score = buildScore(input, selectedRound);
+  const score = buildScore(input, selectedRound, inspection.rounds);
   return parseNormalizedMatchState({
     schemaVersion: 1,
     source: {
