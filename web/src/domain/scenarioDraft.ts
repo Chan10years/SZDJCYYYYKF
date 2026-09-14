@@ -36,7 +36,8 @@ export const ScenarioDraftSchema = z
     id: z.string().trim().min(1),
     verificationStatus: z.literal("draft"),
     humanQaRequired: z.literal(true),
-    authoredScenarioId: z.string().trim().min(1),
+    /** Null is the explicit machine-only state used by product Demo import. */
+    authoredScenarioId: z.string().trim().min(1).nullable(),
     normalizedMatchState: NormalizedMatchStateSchema,
     qaChecks: z.array(ScenarioDraftQaCheckSchema).length(
       SCENARIO_DRAFT_QA_CHECK_IDS.length,
@@ -138,24 +139,31 @@ function buildQaChecks(state: NormalizedMatchState) {
 
 export function buildScenarioDraft(
   input: unknown,
-  authoredScenarioInput: unknown,
+  authoredScenarioInput?: unknown,
 ): ScenarioDraft {
   const state = parseNormalizedMatchState(input);
-  const authoredScenario = ScenarioSchema.parse(authoredScenarioInput);
-  assertDraftInputs(state, authoredScenario);
+  const authoredScenario =
+    authoredScenarioInput === undefined
+      ? null
+      : ScenarioSchema.parse(authoredScenarioInput);
+  if (authoredScenario) {
+    assertDraftInputs(state, authoredScenario);
+  }
 
   return ScenarioDraftSchema.parse({
     schemaVersion: 1,
-    id: `gate1-${state.source.demoSha256.slice(0, 12).toLowerCase()}-r${state.round.number}`,
+    id: authoredScenario
+      ? `gate1-${state.source.demoSha256.slice(0, 12).toLowerCase()}-r${state.round.number}`
+      : `import-${state.source.demoSha256.slice(0, 12).toLowerCase()}-r${state.round.number}-t${state.tick}`,
     verificationStatus: "draft",
     humanQaRequired: true,
-    authoredScenarioId: authoredScenario.id,
+    authoredScenarioId: authoredScenario?.id ?? null,
     normalizedMatchState: state,
     qaChecks: buildQaChecks(state),
   });
 }
 
-function assertAllQaChecksApproved(
+export function assertAllQaChecksApproved(
   approvedCheckIds: readonly string[],
 ): asserts approvedCheckIds is readonly ScenarioDraftQaCheckId[] {
   const required = new Set<string>(SCENARIO_DRAFT_QA_CHECK_IDS);
@@ -169,7 +177,7 @@ function assertAllQaChecksApproved(
   }
 }
 
-function buildPracticeFacts(state: NormalizedMatchState) {
+export function buildPracticeFacts(state: NormalizedMatchState) {
   const aliveBySide = {
     CT: state.players.filter((player) => player.side === "CT" && player.alive)
       .length,
@@ -210,6 +218,9 @@ export function approveScenarioDraftForPractice(
 ): Scenario {
   const draft = ScenarioDraftSchema.parse(draftInput);
   const authoredScenario = ScenarioSchema.parse(authoredScenarioInput);
+  if (draft.authoredScenarioId === null) {
+    throw new Error("machine-only Draft requires imported semantic approval");
+  }
   if (draft.authoredScenarioId !== authoredScenario.id) {
     throw new Error("ScenarioDraft authored Scenario mismatch");
   }

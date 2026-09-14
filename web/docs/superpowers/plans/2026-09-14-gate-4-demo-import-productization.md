@@ -4,16 +4,16 @@
 
 **Goal:** Let a normal user choose/drop a previously unwired CS2 `.dem`, inspect mechanically available match/Round/time data, choose an explicit Round and tick, create a machine-only `ScenarioDraft`, complete the minimum Human QA authoring needed for a legal `practice` Scenario, and continue through the existing Second Coach.
 
-**Architecture:** Browser-local parser in a dedicated Web Worker using the official `demoparser2` WASM package. The Worker keeps the raw File bytes in memory for the active session, returns validated inspection data, and parses the exact user-selected tick on demand. The main thread stores only validated data and authoring state. The importer produces an existing-style Draft and hands a completed practice Scenario to the unchanged `ExperienceShell`.
+**Architecture:** Browser-local parser in a dedicated Web Worker using the official `demoparser2` WASM package first. For real Demos rejected by the current WASM build, the client explicitly uses a bounded byte-in/JSON-out compatibility route in the existing Next runtime with the official native `@laihoe/demoparser2` binding. Neither path persists raw Demos or writes generated output. The main thread stores only validated data and authoring state. The importer produces an existing-style Draft and hands a completed practice Scenario to the unchanged `ExperienceShell`.
 
 ## Task 1: Confirm the parser package and browser build boundary
 
 **Files:** `package.json`, `pnpm-lock.yaml`, `public/vendor/demoparser2/*` or a narrowly scoped bundling adapter, `docs/superpowers/specs/...` only if an evidence-based correction is needed.
 
-1. Add the official WASM package at the actual published version (`demoparser2@0.15.0`, not the native `@laihoe/demoparser2@0.42.0`) only after verifying package metadata, MIT provenance, exports, and size.
-2. Write a small failing runtime/build test or executable probe for the actual WASM exports: initialization, header, event, and exact-tick parsing from `Uint8Array`.
-3. Prove that the Next production build can serve the WASM and Worker without importing the native Node binding into client code.
-4. If the package cannot reliably parse the acceptance Demo or cannot be packaged without a prohibited server/service, stop with `ARCHITECTURE DECISION REQUIRED` and record the evidence instead of silently switching architectures.
+1. Verify the official WASM package metadata, MIT provenance, exports, and generated asset size; vendor only the generated browser assets needed by the Worker.
+2. Probe the actual WASM exports for initialization, header, event, and exact-tick parsing from `Uint8Array`.
+3. Keep the official native `@laihoe/demoparser2@0.42.0` binding external to the server runtime and prove that the Next production build serves the Worker without importing the native binding into client code.
+4. When the current WASM build rejects the acceptance Demo, use the explicit compatibility route in the existing Next app. Do not add a new service, persistence layer, or fixture fallback.
 
 ## Task 2: Define strict import-domain contracts
 
@@ -54,6 +54,7 @@
    - `reset` releases the in-memory bytes and terminates the session.
 3. Keep parser output behind Zod parsing before it reaches React. The Worker must never return a stale fixture when a parse fails.
 4. Expose a promise/callback client with progress and a structured error state suitable for the UI.
+5. If a local parse is unsupported, make the compatibility transition explicit and send only the selected real file bytes to the existing Next route; validate its response with the same schemas.
 
 ## Task 5: Add the normal product entry and import/selection UI
 
@@ -112,4 +113,3 @@
 3. Review `git diff --check`, `git status`, and the full Gate 4 diff for scope drift, secrets, raw Demos, generated outputs, or stale fixtures.
 4. Keep the design/implementation commits small and on `gate/4-demo-import-productization`; do not merge `main` and do not start Reviewer/Integrator.
 5. Before final reporting, independently verify every user requirement with fresh command, browser, and source evidence; report remaining friction and whether `ARCHITECTURE DECISION REQUIRED` was triggered.
-

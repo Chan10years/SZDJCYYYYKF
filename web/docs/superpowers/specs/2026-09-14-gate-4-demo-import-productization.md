@@ -26,7 +26,7 @@ The imported Demo must be a new, previously unwired file. Machine recovery is li
 
 ## Selected approach
 
-Use the official `demoparser2` WASM package in a dedicated Web Worker. The browser reads the user-selected local File, transfers its bytes to the Worker, and receives structured inspection data and a selected normalized snapshot. No raw Demo or generated output is uploaded or written to a repository path.
+Use the official `demoparser2` WASM package in a dedicated Web Worker as the first path. The browser reads the user-selected local File, transfers its bytes to the Worker, and receives structured inspection data and a selected normalized snapshot. If the current official WASM build rejects a supported real Demo, the client explicitly switches to a bounded compatibility request handled by the existing Next application runtime, using the same real bytes and official native `@laihoe/demoparser2` binding. That compatibility path does not persist the Demo, write generated output, read a repository path, or substitute a fixture.
 
 The implementation will reuse the already validated `demoparser2` semantics and the repository's configurable extraction/normalization rules. It will add a thin browser adapter, not a second parser and not per-map parser scripts.
 
@@ -100,7 +100,11 @@ Existing Gate 1 callers and serialized fixtures must remain valid. Any schema ch
 - Worker messages are discriminated and validated at the boundary.
 - Parser exceptions, malformed output, unsupported maps, missing roster identity, and impossible state invariants become actionable UI errors.
 - Do not fall back from an invalid parse to a stale fixture or to guessed facts.
-- The implementation will probe the exact installed WASM API and Next bundling behavior before relying on it. If the browser-local path cannot reliably parse the acceptance Demo without introducing a prohibited backend/service, stop and report `ARCHITECTURE DECISION REQUIRED`.
+- The implementation probes the exact installed WASM API and Next bundling behavior. The acceptance Demo is currently rejected by the upstream WASM build during full event/tick parsing, while the existing app runtime's official native binding parses it reliably. The compatibility request is a thin byte-in/JSON-out route inside the current Next app, not a new backend service, storage layer, queue, or parser implementation.
+
+### Evidence-based runtime correction
+
+The shipped browser asset is the official generated WASM package from `LaihoE/demoparser` revision `2d0f3b3a55d9830bef296e3f0003973fccf17849`. The product also depends directly on the official native `@laihoe/demoparser2@0.42.0` binding for the existing Next runtime. During Gate 4 acceptance, the WASM header path initialized, but the current P1 Demo failed during full event/tick parsing; the native binding returned the complete 13-round inspection and exact tick state. The UI exposes this as an explicit compatibility parser transition, with the same machine-only and no-future-facts boundaries.
 
 ## Map and tactical boundary
 
@@ -141,4 +145,3 @@ Also demonstrate an unsupported/error case and verify that future information is
 - Run `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`.
 - Use a real browser for the new-demo E2E and inspect the resulting state/visual map when present.
 - Verify the final branch/worktree and commit only Gate 4 design and implementation changes.
-

@@ -74,4 +74,18 @@ describe("Gate 1 ScenarioDraft boundary", () => {
       ]),
     );
   });
+
+  it("creates an explicit machine-only Draft without an authored Scenario", () => {
+    const importedDraft = buildScenarioDraft(normalizedMatchState);
+
+    expect(importedDraft.verificationStatus).toBe("draft");
+    expect(importedDraft.authoredScenarioId).toBeNull();
+    expect(() =>
+      approveScenarioDraftForPractice(
+        importedDraft,
+        authoredScenario,
+        SCENARIO_DRAFT_QA_CHECK_IDS,
+      ),
+    ).toThrow(/machine-only|authored Scenario mismatch/);
+  });
 });

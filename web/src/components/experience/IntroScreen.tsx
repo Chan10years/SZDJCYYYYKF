@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 
 type IntroScreenProps = {
   onStart: () => void;
@@ -64,6 +65,12 @@ export function IntroScreen({ onStart, summary }: IntroScreenProps) {
             开始体验
             <span aria-hidden="true">→</span>
           </button>
+          <Link
+            href="/import"
+            className="flex h-12 w-full items-center justify-center rounded-md border border-white/35 px-6 text-[15px] font-medium text-white transition-colors hover:border-white/70 hover:bg-white/10 sm:w-auto"
+          >
+            导入 Demo
+          </Link>
           <p className="text-center text-xs text-white/55 sm:text-left">
             {summary ?? "3 个案例 · 2 局已核验 · 1 局练习参考"}
           </p>
