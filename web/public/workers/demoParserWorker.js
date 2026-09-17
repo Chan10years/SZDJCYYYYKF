@@ -33,24 +33,36 @@ function playerBySlot(slot) {
   return parserHeader?.players?.find((player) => player.slot === slot) ?? null;
 }
 
-function activePlayersForTrack(track) {
+function playersForTrack(track) {
   const players = parserHeader?.players ?? [];
-  const activePlayers = players.filter(
+  const trackPlayers = players.filter(
     (player) =>
       Number.isInteger(player.slot) &&
       player.slot >= 0 &&
       player.slot < track.slotCount,
   );
-  if (activePlayers.length !== track.slotCount) {
+  if (trackPlayers.length !== track.slotCount) {
     throw new Error(
-      `browser parser header has ${activePlayers.length} active players for ${track.slotCount} track slots`,
+      `browser parser header has ${trackPlayers.length} players for ${track.slotCount} track slots`,
     );
   }
-  return activePlayers;
+  return trackPlayers;
 }
 
 function teamNumber(team) {
-  return team === "CT" ? 3 : 2;
+  if (team === "CT") return 3;
+  if (team === "T") return 2;
+  throw new Error(`browser parser returned unsupported team value ${String(team)}`);
+}
+
+function roundSideValue(team) {
+  if (team === "CT" || team === "ct" || team === 3 || team === "3") {
+    return "CT";
+  }
+  if (team === "T" || team === "t" || team === 2 || team === "2") {
+    return "T";
+  }
+  return null;
 }
 
 function makeRoundEvents(rounds, tickRate) {
@@ -127,20 +139,40 @@ function makeBombEvents(events, rounds, tickRate) {
   return bombEvents;
 }
 
-function makeSideRows(rounds, roundNumber) {
+function makeRoundSidePlayers(rounds, roundNumber) {
   const round = rounds.find((candidate) => candidate.number === roundNumber);
-  const economyBySlot = new Map(
-    (round?.economy ?? []).map((entry) => [entry.slot, entry.team]),
-  );
-  return parserHeader.players.map((player) => {
-    const side = economyBySlot.get(player.slot) ?? player.team;
+  const economy = asArray(round?.economy ?? [], `Round ${roundNumber} economy`);
+  return economy.map((entry) => {
+    const player = playerBySlot(entry.slot);
+    if (!player) {
+      throw new Error(
+        `Round ${roundNumber} economy references unknown parser slot ${String(entry.slot)}`,
+      );
+    }
+    const side = roundSideValue(entry.team);
+    if (side === null) {
+      // A player without a supported CT/T value remains a participant
+      // identity, but is not evidence for match-roster recovery. This also
+      // keeps spectator/observer team values out of canonical side evidence.
+      return null;
+    }
     return {
+      slot: player.slot,
       steamid: player.steamId,
       name: player.name,
-      team: teamNumber(side),
-      m_iTeamNum: teamNumber(side),
+      side,
     };
-  });
+  }).filter((player) => player !== null);
+}
+
+function makeSideRows(rounds, roundNumber) {
+  return makeRoundSidePlayers(rounds, roundNumber).map((player) => ({
+    steamid: player.steamid,
+    name: player.name,
+    team: teamNumber(player.side),
+    m_iTeamNum: teamNumber(player.side),
+    slot: player.slot,
+  }));
 }
 
 function makeTickRows(track, tick, roundNumber, rounds) {
@@ -152,7 +184,12 @@ function makeTickRows(track, tick, roundNumber, rounds) {
   );
   const actualTick = Math.floor((frame / sampleHz) * tickRate);
   const sideRows = makeSideRows(rounds, roundNumber);
-  const sideById = new Map(sideRows.map((row) => [row.steamid, row.m_iTeamNum]));
+  const sideByParserInstance = new Map(
+    sideRows.map((row) => [
+      `${row.steamid}@slot:${row.slot}`,
+      row.m_iTeamNum,
+    ]),
+  );
   const weaponNames = parserHeader.weapons ?? [];
   const rows = parserHeader.players.map((player) => {
     const index = frame * track.slotCount + player.slot;
@@ -163,7 +200,11 @@ function makeTickRows(track, tick, roundNumber, rounds) {
       Z: track.posZ[index] ?? 0,
       steamid: player.steamId,
       name: player.name,
-      m_iTeamNum: sideById.get(player.steamId) ?? teamNumber(player.team),
+      slot: player.slot,
+      // A missing round economy row stays unknown. The adapter may only use
+      // a separately validated round-side snapshot, never final header.team.
+      m_iTeamNum:
+        sideByParserInstance.get(`${player.steamId}@slot:${player.slot}`) ?? null,
       health: track.health[index] ?? 0,
       is_alive: ((track.flags[index] ?? 0) & FLAG_ALIVE) !== 0,
       active_weapon_name:
@@ -178,6 +219,91 @@ function makeTickRows(track, tick, roundNumber, rounds) {
   return { actualTick, tickRows: rows, sideRows };
 }
 
+function isWithinCompetitiveRound(item, rounds) {
+  if (
+    !item ||
+    !Number.isInteger(item.tick) ||
+    item.is_warmup_period === true ||
+    item.is_warmup_period === "true" ||
+    item.isWarmup === true ||
+    item.isWarmup === "true"
+  ) {
+    return false;
+  }
+  return rounds.some(
+    (round) =>
+      Number.isInteger(round.startTick) &&
+      item.tick >= round.startTick &&
+      (round.endTick === null ||
+        round.endTick === undefined ||
+        (Number.isInteger(round.endTick) && item.tick < round.endTick)),
+  );
+}
+
+function makeCompetitiveParticipationEvidence(events, players, rounds) {
+  const bySlot = new Map(
+    players.map((player) => [
+      player.slot,
+      {
+        slot: player.slot,
+        steamid: player.steamId,
+        competitiveEventReferenceCount: 0,
+        competitiveEventKinds: new Set(),
+      },
+    ]),
+  );
+  const addReference = (slot, kind) => {
+    if (!Number.isInteger(slot)) return;
+    const evidence = bySlot.get(slot);
+    if (!evidence) return;
+    evidence.competitiveEventReferenceCount += 1;
+    evidence.competitiveEventKinds.add(kind);
+  };
+  const addReferences = (eventKey, fields, predicate = () => true) => {
+    for (const item of asArray(events[eventKey] ?? [], eventKey)) {
+      if (
+        !item ||
+        typeof item !== "object" ||
+        !isWithinCompetitiveRound(item, rounds) ||
+        !predicate(item)
+      ) {
+        continue;
+      }
+      for (const field of fields) {
+        addReference(item[field], eventKey);
+      }
+    }
+  };
+
+  // These are the only parser event families that can directly name an actor
+  // or victim in a competition-scoped event. Economy, movement, spawn,
+  // inventory and track presence remain intentionally outside roster evidence.
+  const hasKnownNonWorldWeapon = (item) =>
+    typeof item.weapon === "string" && item.weapon.trim().toLowerCase() !== "world";
+
+  addReferences("kills", ["attacker", "victim", "assister"], (item) =>
+    hasKnownNonWorldWeapon(item),
+  );
+  addReferences("damage", ["attacker", "victim"], (item) =>
+    hasKnownNonWorldWeapon(item) && item.attacker !== item.victim,
+  );
+  addReferences("shots", ["shooter"]);
+  addReferences("grenades", ["thrower"]);
+  addReferences("blinds", ["attacker", "victim"]);
+  addReferences("plants", ["planter"]);
+  addReferences("defuses", ["defuser"]);
+
+  return players.map((player) => {
+    const evidence = bySlot.get(player.slot);
+    return {
+      slot: player.slot,
+      steamid: player.steamId,
+      competitiveEventReferenceCount: evidence.competitiveEventReferenceCount,
+      competitiveEventKinds: [...evidence.competitiveEventKinds].sort(),
+    };
+  });
+}
+
 function makeRaw(events, track, header) {
   const tickRate = header.tickRate;
   const rounds = asArray(events.rounds, "rounds");
@@ -186,11 +312,21 @@ function makeRaw(events, track, header) {
     header: {
       map_name: header.map,
     },
-    playerFirstConnectEvents: header.players.map((player) => ({
-      event_name: "player_first_connect",
+    playerIdentities: header.players.map((player) => ({
+      slot: player.slot,
       steamid: player.steamId,
       name: player.name,
-      team: player.team,
+      finalSide: player.team,
+    })),
+    competitiveParticipationEvidence: makeCompetitiveParticipationEvidence(
+      events,
+      header.players,
+      rounds,
+    ),
+    roundSideSnapshots: rounds.map((round) => ({
+      roundNumber: round.number,
+      freezeEndTick: round.freezeTimeEndTick,
+      players: makeRoundSidePlayers(rounds, round.number),
     })),
     ...roundEvents,
     killEvents: asArray(events.kills, "kills").map((kill) => ({
@@ -203,9 +339,6 @@ function makeRaw(events, track, header) {
       1,
       Math.round(tickRate / (track.sampleHz || 16)) || SAMPLE_STEP_FALLBACK,
     ),
-    roundSideRowsByNumber: Object.fromEntries(
-      rounds.map((round) => [String(round.number), makeSideRows(rounds, round.number)]),
-    ),
   };
 }
 
@@ -217,17 +350,27 @@ async function digestSha256(buffer) {
     .toUpperCase();
 }
 
-function parserError(detail) {
+function parserErrorWithKind(kind, detail) {
   const detailText = detail instanceof Error ? detail.message : String(detail);
+  const prefix =
+    kind === "parser-runtime"
+      ? "浏览器本地 parser runtime 失败；原始文件未上传。"
+      : "浏览器本地 Demo 解析失败；原始文件未上传。";
   post({
     type: "error",
-    code: "unsupported",
+    code: kind,
     message:
       detailText && detailText !== "browser parser failed"
-        ? `浏览器本地 parser 不支持或无法读取这场 Demo；未上传原始文件。(${detailText})`
-        : "浏览器本地 parser 不支持或无法读取这场 Demo；未上传原始文件。",
+        ? `${prefix}（${detailText}）`
+        : prefix,
     detail: detailText,
   });
+}
+
+function parserRuntimeError(message) {
+  const error = new Error(message);
+  error.code = "parser-runtime";
+  return error;
 }
 
 async function finishParse(payload) {
@@ -238,7 +381,7 @@ async function finishParse(payload) {
   }
   parserHeader = {
     ...parserHeader,
-    players: activePlayersForTrack(track),
+    players: playersForTrack(track),
   };
   const raw = makeRaw(events, track, parserHeader);
   currentLoad.raw = raw;
@@ -270,11 +413,16 @@ function handleVendorMessage(message) {
     return;
   }
   if (message.type === "error") {
-    parserError(message.code ?? "browser parser failed");
+    parserErrorWithKind(
+      "demo-parse",
+      message.message ?? message.code ?? "browser parser failed",
+    );
     return;
   }
   if (message.type === "done") {
-    void finishParse(message).catch(parserError);
+    void finishParse(message).catch((error) =>
+      parserErrorWithKind("demo-parse", error),
+    );
   }
 }
 
@@ -283,8 +431,17 @@ function ensureVendorWorkerProtocol() {
   // The generated worker calls the global `postMessage`. Intercept it while
   // its parser is running so the generated result stays inside this adapter.
   self.postMessage = handleVendorMessage;
-  importScripts("/vendor/disalytics/parser-worker.js");
+  try {
+    importScripts("/vendor/disalytics/parser-worker.js");
+  } catch (error) {
+    throw parserRuntimeError(
+      `无法初始化 vendored parser worker：${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   vendorOnMessage = self.onmessage;
+  if (typeof vendorOnMessage !== "function") {
+    throw parserRuntimeError("vendored parser worker did not expose a message handler");
+  }
   self.onmessage = handleMessage;
 }
 
@@ -376,7 +533,11 @@ function handleMessage(event) {
       }
       throw new Error("unknown Demo worker message");
     } catch (error) {
-      parserError(error);
+      const kind =
+        error?.code === "parser-runtime"
+          ? "parser-runtime"
+          : "demo-parse";
+      parserErrorWithKind(kind, error);
     }
   })();
 }

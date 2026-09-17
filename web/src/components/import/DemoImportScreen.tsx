@@ -23,6 +23,7 @@ import {
   type ImportedScenarioAuthoring,
 } from "@/domain/importedScenario";
 import type { CallId, ReasonId, Scenario } from "@/domain/types";
+import { DemoImportFailure } from "@/domain/demoImportErrors";
 import {
   DemoImportClient,
   DemoImportCancelledError,
@@ -296,7 +297,17 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
       setAuthoring(initialAuthoringForm());
     } catch (loadError) {
       if (loadError instanceof DemoImportCancelledError) return;
-      setProgress({ status: "error", message: "导入失败" });
+      setProgress({
+        status:
+          loadError instanceof DemoImportFailure && loadError.kind === "parser-runtime"
+            ? "unsupported"
+            : "error",
+        message: errorMessage(loadError),
+        mode: "browser-local",
+        ...(loadError instanceof DemoImportFailure
+          ? { failureKind: loadError.kind }
+          : {}),
+      });
       setError(errorMessage(loadError));
     }
   }
@@ -354,7 +365,17 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
       setPracticeCurrentState(null);
     } catch (selectionError) {
       if (selectionError instanceof DemoImportCancelledError) return;
-      setProgress({ status: "error", message: "无法恢复所选 tick" });
+      setProgress({
+        status:
+          selectionError instanceof DemoImportFailure && selectionError.kind === "parser-runtime"
+            ? "unsupported"
+            : "error",
+        message: errorMessage(selectionError),
+        mode: "browser-local",
+        ...(selectionError instanceof DemoImportFailure
+          ? { failureKind: selectionError.kind }
+          : {}),
+      });
       setError(errorMessage(selectionError));
     }
   }
@@ -574,12 +595,13 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
               </div>
               <MetadataStrip items={[
                 <span key="map">{inspection.map.name.toUpperCase()}</span>,
-                <span key="players"><Num>{inspection.players.length}</Num> players</span>,
+                <span key="players"><Num>{inspection.matchRoster.length}</Num> match roster players</span>,
                 <span key="rounds"><Num>{inspection.rounds.length}</Num> rounds</span>,
                 <span key="parser">{inspection.source.parser} {inspection.source.parserVersion}</span>,
               ]} />
               <p className="text-xs leading-relaxed text-app-muted">
-                阵营标签：{inspection.teams.map((team) => `${team.label} ${team.playerCount}人`).join(" · ")}。玩家身份来自 <span className="font-mono">player_first_connect</span>，不是用户重新填写。
+                阵营标签：{inspection.teams.map((team) => `${team.label} ${team.playerCount}人`).join(" · ")}。共发现 {inspection.playerIdentities.length} 个 parser participant identity；当前 5v5 match roster 依据 competitive-participant evidence 与回合冻结结束时的 CT/T 证据恢复，不使用 header 的最终阵营。
+                {inspection.rosterResolution.unresolvedIdentityIds.length > 0 && ` 另有 ${inspection.rosterResolution.unresolvedIdentityIds.length} 个身份尚未自动分类，未强行写入 roster。`}
               </p>
             </div>
 

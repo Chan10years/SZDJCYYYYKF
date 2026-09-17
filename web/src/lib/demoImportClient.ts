@@ -4,6 +4,7 @@ import {
   getSelectableRound,
   MAX_DEMO_FILE_SIZE_BYTES,
   type DemoImportInspection,
+  type DemoImportRosterConfirmation,
   type DemoImportRound,
   type DemoImportStatus,
 } from "@/domain/demoImport";
@@ -12,7 +13,14 @@ import {
   buildDemoImportNormalizedState,
   type DemoParserInspectionInput,
   type DemoParserSelectionInput,
+  type DemoImportRosterResolutionOptions,
 } from "@/domain/demoImportAdapter";
+import {
+  DemoImportFailure,
+  DemoParseError,
+  DemoParserRuntimeError,
+  type DemoImportFailureKind,
+} from "@/domain/demoImportErrors";
 import { NormalizedMatchStateSchema } from "@/domain/normalizedMatchState";
 
 export type DemoImportClientMode = "browser-local";
@@ -22,11 +30,17 @@ export type DemoImportProgress = {
   message: string;
   mode?: DemoImportClientMode;
   stage?: string;
+  failureKind?: DemoImportFailureKind;
 };
 
 export type DemoImportLoadResult = {
   inspection: DemoImportInspection;
   mode: DemoImportClientMode;
+};
+
+export type DemoImportLoadOptions = {
+  /** Explicit per-import roster input used only after automatic recovery is ambiguous. */
+  rosterConfirmation?: DemoImportRosterConfirmation;
 };
 
 export type DemoImportSelectionResult = {
@@ -77,10 +91,11 @@ type LoadedDemo = {
   mode: DemoImportClientMode;
   baseInput: DemoParserInspectionInput;
   worker: DemoImportWorkerLike;
+  rosterResolutionOptions: DemoImportRosterResolutionOptions;
 };
 
-export class LocalParserUnsupportedError extends Error {
-  constructor(message = "浏览器本地 parser 不支持当前 Demo；未上传原始文件。") {
+export class LocalParserUnsupportedError extends DemoParserRuntimeError {
+  constructor(message = "浏览器本地 parser runtime 失败；原始文件未上传。") {
     super(message);
     this.name = "LocalParserUnsupportedError";
   }
@@ -99,14 +114,14 @@ function asRecord(input: unknown): Record<string, unknown> {
     input === null ||
     Array.isArray(input)
   ) {
-    throw new LocalParserUnsupportedError();
+    throw new DemoParseError("浏览器本地 Demo 解析结果格式无效；原始文件未上传。");
   }
   return input as Record<string, unknown>;
 }
 
 function asArray(input: unknown): readonly unknown[] {
   if (!Array.isArray(input)) {
-    throw new LocalParserUnsupportedError();
+    throw new DemoParseError("浏览器本地 Demo 解析结果缺少数组字段；原始文件未上传。");
   }
   return input;
 }
@@ -127,7 +142,11 @@ function workerBaseInput(
     fileSize: file.size,
     demoSha256,
     header: raw.header,
-    playerFirstConnectEvents: asArray(raw.playerFirstConnectEvents),
+    playerIdentities: asArray(raw.playerIdentities),
+    competitiveParticipationEvidence: asArray(
+      raw.competitiveParticipationEvidence,
+    ),
+    roundSideSnapshots: asArray(raw.roundSideSnapshots),
     roundStartEvents: asArray(raw.roundStartEvents),
     roundFreezeEndEvents: asArray(raw.roundFreezeEndEvents),
     roundEndEvents: asArray(raw.roundEndEvents),
@@ -148,24 +167,24 @@ function workerSelectionInput(
   const raw = asRecord(message.raw);
   const actualTickValue = message.actualTick;
   if (typeof actualTickValue !== "number") {
-    throw new LocalParserUnsupportedError(
-      "浏览器本地 parser 未提供可信的实际 tick；已拒绝该截点。",
+    throw new DemoParseError(
+      "浏览器本地 Demo 解析结果未提供可信的实际 tick；已拒绝该截点。原始文件未上传。",
     );
   }
   const actualTick = actualTickValue;
   if (!Number.isInteger(actualTick)) {
-    throw new LocalParserUnsupportedError(
-      "浏览器本地 parser 返回了无效的实际 tick；已拒绝该截点。",
+    throw new DemoParseError(
+      "浏览器本地 Demo 解析结果返回了无效的实际 tick；已拒绝该截点。原始文件未上传。",
     );
   }
   if (actualTick > requestedTick) {
-    throw new LocalParserUnsupportedError(
-      `浏览器本地 parser 返回了未来 sample tick ${actualTick}，请求 tick 是 ${requestedTick}；已拒绝该截点。`,
+    throw new DemoParseError(
+      `浏览器本地 Demo 解析结果返回了未来 sample tick ${actualTick}，请求 tick 是 ${requestedTick}；已拒绝该截点。原始文件未上传。`,
     );
   }
   if (actualTick !== requestedTick) {
-    throw new LocalParserUnsupportedError(
-      `浏览器本地 parser 返回的 sample tick ${actualTick} 与请求 tick ${requestedTick} 不一致；已拒绝该截点。`,
+    throw new DemoParseError(
+      `浏览器本地 Demo 解析结果返回的 sample tick ${actualTick} 与请求 tick ${requestedTick} 不一致；已拒绝该截点。原始文件未上传。`,
     );
   }
   if (
@@ -173,8 +192,8 @@ function workerSelectionInput(
     actualTick > round.maxSelectableTick ||
     actualTick % (round.tickStep ?? 1) !== 0
   ) {
-    throw new LocalParserUnsupportedError(
-      "浏览器本地 parser 返回的实际 tick 不在可信可选范围内；已拒绝该截点。",
+    throw new DemoParseError(
+      "浏览器本地 Demo 解析结果的实际 tick 不在可信可选范围内；已拒绝该截点。原始文件未上传。",
     );
   }
   return {
@@ -184,6 +203,27 @@ function workerSelectionInput(
     tickRows: asArray(raw.tickRows),
     sideRows: Array.isArray(raw.sideRows) ? raw.sideRows : undefined,
   };
+}
+
+function workerFailure(messageInput: unknown): DemoImportFailure {
+  const message =
+    typeof messageInput === "object" &&
+    messageInput !== null &&
+    !Array.isArray(messageInput)
+      ? (messageInput as Record<string, unknown>)
+      : {};
+  const detail =
+    typeof message.message === "string" && message.message.length > 0
+      ? message.message
+      : undefined;
+  if (message.code === "demo-parse") {
+    return new DemoParseError(
+      detail ?? "浏览器本地 Demo 解析失败；原始文件未上传。",
+    );
+  }
+  return new LocalParserUnsupportedError(
+    detail ?? "浏览器本地 parser runtime 失败；原始文件未上传。",
+  );
 }
 
 function defaultWorkerFactory(): DemoImportWorkerLike {
@@ -228,7 +268,10 @@ export class DemoImportClient {
     this.onProgress = options.onProgress ?? (() => undefined);
   }
 
-  async load(file: File): Promise<DemoImportLoadResult> {
+  async load(
+    file: File,
+    options: DemoImportLoadOptions = {},
+  ): Promise<DemoImportLoadResult> {
     this.validateFile(file);
     this.reset();
     const generation = this.generation;
@@ -265,13 +308,20 @@ export class DemoImportClient {
       );
       const message = await resultPromise;
       const baseInput = workerBaseInput(message, file);
-      const inspection = buildDemoImportInspection(baseInput);
+      const inspection = buildDemoImportInspection(baseInput, options);
       this.loadedDemo = {
         file,
         inspection,
         mode: "browser-local",
         baseInput,
         worker,
+        rosterResolutionOptions: inspection.rosterResolution.mode === "user-confirmed"
+          ? {
+              rosterConfirmation: {
+                matchRosterIds: [...inspection.rosterResolution.matchRosterIds],
+              },
+            }
+          : {},
       };
       this.activeWorker = worker;
       this.emit({
@@ -290,9 +340,10 @@ export class DemoImportClient {
       }
       const parserError = this.asParserError(error);
       this.emit({
-        status: "unsupported",
+        status: parserError.kind === "parser-runtime" ? "unsupported" : "error",
         message: parserError.message,
         mode: "browser-local",
+        failureKind: parserError.kind,
       });
       throw parserError;
     }
@@ -329,7 +380,10 @@ export class DemoImportClient {
         tick,
         round,
       );
-      const normalizedMatchState = buildDemoImportNormalizedState(selectionInput);
+      const normalizedMatchState = buildDemoImportNormalizedState(
+        selectionInput,
+        loaded.rosterResolutionOptions,
+      );
       this.emit({
         status: "ready",
         message: "所选 Round / Tick 已在浏览器本地恢复。",
@@ -347,9 +401,10 @@ export class DemoImportClient {
       }
       const parserError = this.asParserError(error);
       this.emit({
-        status: "unsupported",
+        status: parserError.kind === "parser-runtime" ? "unsupported" : "error",
         message: parserError.message,
         mode: "browser-local",
+        failureKind: parserError.kind,
       });
       throw parserError;
     }
@@ -398,8 +453,8 @@ export class DemoImportClient {
     }
   }
 
-  private asParserError(error: unknown): LocalParserUnsupportedError {
-    if (error instanceof LocalParserUnsupportedError) {
+  private asParserError(error: unknown): DemoImportFailure {
+    if (error instanceof DemoImportFailure) {
       return error;
     }
     const detail = error instanceof Error ? error.message : String(error);
@@ -407,11 +462,13 @@ export class DemoImportClient {
       detail && detail !== "undefined"
         ? `（${detail.slice(0, 240)}）`
         : "";
-    return new LocalParserUnsupportedError(
-      detail.includes("超时")
-        ? "浏览器本地 parser 超时；未上传原始文件。"
-        : `浏览器本地 parser 无法读取当前 Demo；未上传原始文件。${detailSuffix}`,
-    );
+    return detail.includes("超时")
+      ? new LocalParserUnsupportedError(
+          "浏览器本地 parser 超时；未上传原始文件。",
+        )
+      : new DemoParseError(
+          `浏览器本地 Demo 解析失败；原始文件未上传。${detailSuffix}`,
+        );
   }
 
   private emit(progress: DemoImportProgress): void {
@@ -476,15 +533,7 @@ export class DemoImportClient {
           return;
         }
         if (type === "error") {
-          const detail =
-            typeof (message as { message?: unknown }).message === "string"
-              ? (message as { message: string }).message
-              : undefined;
-          settleReject(
-            new LocalParserUnsupportedError(
-              detail ?? "浏览器本地 parser 无法读取当前 Demo；未上传原始文件。",
-            ),
-          );
+          settleReject(workerFailure(message));
           return;
         }
         if (type === finalType) {

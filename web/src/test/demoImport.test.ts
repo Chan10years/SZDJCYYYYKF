@@ -9,7 +9,7 @@ import {
 } from "@/domain/demoImport";
 
 const inspectionFixture: DemoImportInspection = {
-  schemaVersion: 1,
+  schemaVersion: 3,
   fileName: "new-match.dem",
   fileSize: 1024,
   source: {
@@ -38,17 +38,74 @@ const inspectionFixture: DemoImportInspection = {
     { label: "T side", side: "T", playerCount: 5 },
     { label: "CT side", side: "CT", playerCount: 5 },
   ],
-  players: [
+  playerIdentities: [
     ...Array.from({ length: 5 }, (_, index) => ({
-      id: `t-${index}`,
+      id: `100${index}`,
       name: `T${index}`,
-      side: "T" as const,
+      slot: index,
+      finalSide: "T" as const,
     })),
     ...Array.from({ length: 5 }, (_, index) => ({
-      id: `ct-${index}`,
+      id: `200${index}`,
       name: `CT${index}`,
-      side: "CT" as const,
+      slot: index + 5,
+      finalSide: "CT" as const,
     })),
+  ],
+  competitiveParticipationEvidence: [
+    ...Array.from({ length: 5 }, (_, index) => ({
+      id: `100${index}`,
+      slot: index,
+      competitiveEventReferenceCount: 1,
+      competitiveEventKinds: ["shots" as const],
+    })),
+    ...Array.from({ length: 5 }, (_, index) => ({
+      id: `200${index}`,
+      slot: index + 5,
+      competitiveEventReferenceCount: 1,
+      competitiveEventKinds: ["shots" as const],
+    })),
+  ],
+  rosterResolution: {
+    mode: "automatic",
+    matchRosterIds: [
+      ...Array.from({ length: 5 }, (_, index) => `100${index}`),
+      ...Array.from({ length: 5 }, (_, index) => `200${index}`),
+    ],
+    unresolvedIdentityIds: [],
+    confirmedNonRosterIdentityIds: [],
+  },
+  matchRoster: [
+    ...Array.from({ length: 5 }, (_, index) => ({
+      id: `100${index}`,
+      name: `T${index}`,
+      slot: index,
+    })),
+    ...Array.from({ length: 5 }, (_, index) => ({
+      id: `200${index}`,
+      name: `CT${index}`,
+      slot: index + 5,
+    })),
+  ],
+  roundSideSnapshots: [
+    {
+      roundNumber: 18,
+      freezeEndTick: 1128,
+      players: [
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `100${index}`,
+          name: `T${index}`,
+          slot: index,
+          side: "T" as const,
+        })),
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `200${index}`,
+          name: `CT${index}`,
+          slot: index + 5,
+          side: "CT" as const,
+        })),
+      ],
+    },
   ],
   rounds: [
     {
@@ -97,6 +154,10 @@ describe("Gate 4 demo import domain", () => {
   it("allows the first sampled tick after a non-aligned freeze end", () => {
     const parsed = DemoImportInspectionSchema.parse({
       ...inspectionFixture,
+      roundSideSnapshots: inspectionFixture.roundSideSnapshots.map((snapshot) => ({
+        ...snapshot,
+        freezeEndTick: 1129,
+      })),
       rounds: [
         {
           ...inspectionFixture.rounds[0],

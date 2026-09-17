@@ -3,11 +3,17 @@ import {
   DemoImportClient,
   type DemoImportProgress,
 } from "@/lib/demoImportClient";
+import {
+  DemoRosterRecoveryError,
+  DemoParseError,
+  DemoParserRuntimeError,
+} from "@/domain/demoImportErrors";
 
 const SHA = "A".repeat(64);
 
-function makeRaw(selectionTickStep?: number) {
+function makeRaw(selectionTickStep?: number, inactiveSlots: readonly number[] = []) {
   const players = Array.from({ length: 10 }, (_, index) => ({
+    slot: index,
     steamid: String(index + 1),
     name: `player-${index + 1}`,
     team: index < 5 ? 3 : 2,
@@ -27,12 +33,31 @@ function makeRaw(selectionTickStep?: number) {
       patch_version: "patch",
       server_name: "new server",
     },
-    playerFirstConnectEvents: players.map((player) => ({
-      event_name: "player_first_connect",
+    playerIdentities: players.map((player, slot) => ({
+      slot,
       steamid: player.steamid,
       name: player.name,
-      team: player.team,
+      finalSide: player.team,
     })),
+    competitiveParticipationEvidence: players.map((player, slot) => ({
+      slot,
+      steamid: player.steamid,
+      competitiveEventReferenceCount: inactiveSlots.includes(slot) ? 0 : 1,
+      competitiveEventKinds: inactiveSlots.includes(slot) ? [] : ["shots"],
+    })),
+    roundSideSnapshots: [
+      {
+        roundNumber: 1,
+        freezeEndTick: 1200,
+        players: players.map((player, slot) => ({
+          slot,
+          steamid: player.steamid,
+          name: player.name,
+          side: player.team === 3 ? "CT" : "T",
+        })),
+      },
+    ],
+    tickRows: players,
     roundStartEvents: [
       {
         event_name: "round_start",
@@ -65,7 +90,6 @@ function makeRaw(selectionTickStep?: number) {
     ],
     killEvents: [],
     bombEvents: [],
-    tickRows: players,
     ...(selectionTickStep ? { selectionTickStep } : {}),
   };
 }
@@ -78,6 +102,8 @@ class FakeWorker {
     private readonly selectionActualTick: number | undefined = undefined,
     private readonly selectionTickStep: number | undefined = undefined,
     private readonly includeActualTick = true,
+    private readonly failureCode = "unsupported",
+    private readonly inactiveSlots: readonly number[] = [],
   ) {}
 
   addEventListener(type: string, listener: (event: MessageEvent) => void) {
@@ -94,10 +120,17 @@ class FakeWorker {
       if (this.terminated) return;
       if (message.type === "load") {
         if (this.failLoad) {
-          this.emit({ type: "error", code: "unsupported" });
+          this.emit({
+            type: "error",
+            code: this.failureCode,
+            message:
+              this.failureCode === "demo-parse"
+                ? "浏览器本地 Demo 解析失败；原始文件未上传。"
+                : undefined,
+          });
           return;
         }
-        const raw = makeRaw(this.selectionTickStep);
+        const raw = makeRaw(this.selectionTickStep, this.inactiveSlots);
         this.emit({
           type: "inspection",
           fileName: "new-match.dem",
@@ -107,7 +140,7 @@ class FakeWorker {
           raw,
         });
       } else if (message.type === "select") {
-        const raw = makeRaw(this.selectionTickStep);
+        const raw = makeRaw(this.selectionTickStep, this.inactiveSlots);
         const actualTick = this.selectionActualTick ?? message.tick;
         this.emit({
           type: "selection",
@@ -164,7 +197,50 @@ describe("DemoImportClient", () => {
 
     await expect(
       client.load(new File([new Uint8Array(15)], "new-match.dem")),
-    ).rejects.toThrow(/本地|上传|支持/);
+    ).rejects.toBeInstanceOf(DemoParserRuntimeError);
+  });
+
+  it("keeps a Demo parse failure distinct from a parser runtime failure", async () => {
+    const client = new DemoImportClient({
+      workerFactory: () => new FakeWorker(true, undefined, undefined, true, "demo-parse"),
+    });
+
+    await expect(
+      client.load(new File([new Uint8Array(15)], "malformed.dem")),
+    ).rejects.toBeInstanceOf(DemoParseError);
+  });
+
+  it("reports roster recovery ambiguity as an import error, not parser unsupported", async () => {
+    const progress: DemoImportProgress[] = [];
+    const client = new DemoImportClient({
+      workerFactory: () => new FakeWorker(false, undefined, undefined, true, "unsupported", [0]),
+      onProgress: (next) => progress.push(next),
+    });
+
+    await expect(
+      client.load(new File([new Uint8Array(15)], "ambiguous-roster.dem")),
+    ).rejects.toBeInstanceOf(DemoRosterRecoveryError);
+    expect(progress.at(-1)).toMatchObject({
+      status: "error",
+      failureKind: "roster-recovery",
+    });
+  });
+
+  it("carries explicit roster confirmation through exact-tick selection", async () => {
+    const client = new DemoImportClient({
+      workerFactory: () =>
+        new FakeWorker(false, undefined, undefined, true, "unsupported", [0]),
+    });
+    const file = new File([new Uint8Array(15)], "confirmed-roster.dem");
+    const rosterIds = Array.from({ length: 10 }, (_, index) => String(index + 1));
+
+    await client.load(file, { rosterConfirmation: { matchRosterIds: rosterIds } });
+    const selected = await client.select(1, 5555);
+
+    expect(selected.normalizedMatchState.players).toHaveLength(10);
+    expect(selected.normalizedMatchState.players.map((player) => player.id)).toEqual(
+      rosterIds,
+    );
   });
 
   it("rejects a non-aligned tick before the worker can sample it", async () => {

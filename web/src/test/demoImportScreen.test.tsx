@@ -16,6 +16,7 @@ const SHA = "B".repeat(64);
 
 function makeData() {
   const players = Array.from({ length: 10 }, (_, index) => ({
+    slot: index,
     steamid: String(index + 1),
     name: `demo-player-${index + 1}`,
     team: index < 5 ? 3 : 2,
@@ -35,25 +36,45 @@ function makeData() {
       patch_version: "patch",
       server_name: "new user Demo",
     },
-    playerFirstConnectEvents: players.map((player) => ({
-      event_name: "player_first_connect",
+    playerIdentities: players.map((player, slot) => ({
+      slot,
       steamid: player.steamid,
       name: player.name,
-      team: player.team,
+      finalSide: player.team,
     })),
+    competitiveParticipationEvidence: players.map((player, slot) => ({
+      slot,
+      steamid: player.steamid,
+      competitiveEventReferenceCount: 1,
+      competitiveEventKinds: ["shots"],
+    })),
+    roundSideSnapshots: [
+      {
+        roundNumber: 1,
+        freezeEndTick: 1200,
+        players: players.map((player, slot) => ({
+          slot,
+          steamid: player.steamid,
+          name: player.name,
+          side: player.team === 3 ? "CT" : "T",
+        })),
+      },
+    ],
+    tickRows: players,
     roundStartEvents: [{ event_name: "round_start", tick: 1000, game_time: 0, total_rounds_played: 0, round: 1, is_warmup_period: false }],
     roundFreezeEndEvents: [{ event_name: "round_freeze_end", tick: 1200, game_time: 3, total_rounds_played: 0, round: 1 }],
     roundEndEvents: [{ event_name: "round_end", tick: 7000, game_time: 93, total_rounds_played: 0, round: 1, winner: "T", is_warmup_period: false }],
     killEvents: [],
     bombEvents: [],
-    tickRows: players,
   };
   const base: DemoParserInspectionInput = {
     fileName: "new-user.dem",
     fileSize: 15,
     demoSha256: SHA,
     header: raw.header,
-    playerFirstConnectEvents: raw.playerFirstConnectEvents,
+    playerIdentities: raw.playerIdentities,
+    competitiveParticipationEvidence: raw.competitiveParticipationEvidence,
+    roundSideSnapshots: raw.roundSideSnapshots,
     roundStartEvents: raw.roundStartEvents,
     roundFreezeEndEvents: raw.roundFreezeEndEvents,
     roundEndEvents: raw.roundEndEvents,

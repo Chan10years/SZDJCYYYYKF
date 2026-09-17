@@ -1,13 +1,27 @@
 import {
   DemoImportInspectionSchema,
+  DemoImportRosterConfirmationSchema,
   DemoImportRoundSchema,
   assertSelectableTick,
   formatDemoClock,
   getSelectableRound,
+  type DemoImportCompetitiveParticipationEvidence,
   type DemoImportInspection,
+  type DemoImportMatchRosterPlayer,
   type DemoImportMarker,
+  type DemoImportPlayerIdentity,
+  type DemoImportRosterConfirmation,
+  type DemoImportRosterResolution,
+  type DemoImportRoundSidePlayer,
+  type DemoImportRoundSideSnapshot,
   type DemoImportRound,
+  DEMO_IMPORT_DIRECT_COMPETITIVE_EVENT_KINDS,
 } from "./demoImport";
+import {
+  DemoMapMetadataError,
+  DemoRosterRecoveryError,
+  DemoRosterValidationError,
+} from "./demoImportErrors";
 import {
   parseNormalizedMatchState,
   type NormalizedMatchState,
@@ -28,7 +42,12 @@ export type DemoParserInspectionInput = {
   fileSize: number;
   demoSha256: string;
   header: unknown;
-  playerFirstConnectEvents: readonly unknown[];
+  /** Parser header identities. `finalSide` is metadata, never roster truth. */
+  playerIdentities: readonly unknown[];
+  /** Positive parser event references; not a role guess or roster override. */
+  competitiveParticipationEvidence: readonly unknown[];
+  /** Round freeze-end side evidence used to recover the match roster. */
+  roundSideSnapshots: readonly unknown[];
   roundStartEvents: readonly unknown[];
   roundFreezeEndEvents: readonly unknown[];
   roundEndEvents: readonly unknown[];
@@ -42,7 +61,7 @@ export type DemoParserSelectionInput = DemoParserInspectionInput & {
   roundNumber: number;
   tick: number;
   tickRows: readonly unknown[];
-  /** Full-player snapshot at freeze end; dead selected-tick rows may omit team. */
+  /** Round-specific freeze-end side evidence; selected-tick rows may omit team. */
   sideRows?: readonly unknown[];
 };
 
@@ -58,6 +77,18 @@ type Header = {
   demoVersion: string;
   patchVersion: string;
   serverName: string;
+};
+
+type RosterEvidence = {
+  playerIdentities: DemoImportPlayerIdentity[];
+  competitiveParticipationEvidence: DemoImportCompetitiveParticipationEvidence[];
+  rosterResolution: DemoImportRosterResolution;
+  matchRoster: DemoImportMatchRosterPlayer[];
+  roundSideSnapshots: DemoImportRoundSideSnapshot[];
+};
+
+export type DemoImportRosterResolutionOptions = {
+  rosterConfirmation?: DemoImportRosterConfirmation;
 };
 
 const MAP_OVERVIEWS: Record<string, RadarMapMetadata> = {
@@ -81,6 +112,10 @@ const MAP_OVERVIEWS: Record<string, RadarMapMetadata> = {
       "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_dust2.txt",
   },
 };
+
+const DIRECT_COMPETITIVE_EVENT_KIND_SET = new Set<string>(
+  DEMO_IMPORT_DIRECT_COMPETITIVE_EVENT_KINDS,
+);
 
 function asRecord(input: unknown, label: string): ParserRecord {
   if (input instanceof Map) {
@@ -126,6 +161,37 @@ function readString(
     return null;
   }
   throw new Error(`${label} is unavailable in parser output`);
+}
+
+function readSteamId(
+  record: ParserRecord,
+  keys: readonly string[],
+  label: string,
+): string {
+  const key = keys.find((candidate) => typeof record[candidate] === "string");
+  if (!key) {
+    throw new Error(`${label} must be a string to preserve SteamID precision`);
+  }
+  const value = (record[key] as string).trim();
+  if (!/^[1-9]\d{0,19}$/.test(value)) {
+    throw new Error(`${label} is not a stable numeric SteamID`);
+  }
+  return value;
+}
+
+function readOptionalSteamId(
+  record: ParserRecord,
+  keys: readonly string[],
+  label: string,
+): string | null {
+  if (!keys.some((key) => record[key] !== undefined && record[key] !== null)) {
+    return null;
+  }
+  return readSteamId(record, keys, label);
+}
+
+function parserInstanceKey(id: string, slot: number): string {
+  return `${id}@slot:${slot}`;
 }
 
 function readNumber(
@@ -192,8 +258,12 @@ function normalizeMapName(record: ParserRecord): string {
   return normalized.startsWith("de_") ? normalized : `de_${normalized}`;
 }
 
-function readSide(record: ParserRecord, label: string): "CT" | "T" {
-  const named = readString(record, ["team", "side"], label, { required: false });
+function readOptionalSide(
+  record: ParserRecord,
+  label: string,
+  namedKeys: readonly string[] = ["team", "side"],
+): "CT" | "T" | null {
+  const named = readString(record, namedKeys, label, { required: false });
   if (named === "CT" || named === "ct" || named === "3") {
     return "CT";
   }
@@ -210,7 +280,53 @@ function readSide(record: ParserRecord, label: string): "CT" | "T" {
   if (teamNum === 2) {
     return "T";
   }
-  throw new Error(`${label} does not contain a supported CT/T team value`);
+  // Unknown values (for example spectator/observer team codes) are not
+  // evidence of either competitive side. Required callers use readSide and
+  // still fail closed; optional metadata callers keep the value unresolved.
+  return null;
+}
+
+function readSide(
+  record: ParserRecord,
+  label: string,
+  namedKeys: readonly string[] = ["team", "side"],
+): "CT" | "T" {
+  const side = readOptionalSide(record, label, namedKeys);
+  if (side === null) {
+    throw new Error(`${label} does not contain a supported CT/T team value`);
+  }
+  return side;
+}
+
+function readSlot(record: ParserRecord, label: string): number {
+  const slot = readNumber(record, ["slot", "player_slot"], label, {
+    integer: true,
+  });
+  if (slot < 0) {
+    throw new Error(`${label} must be a non-negative player slot`);
+  }
+  return slot;
+}
+
+function readStringArray(
+  record: ParserRecord,
+  keys: readonly string[],
+  label: string,
+): string[] {
+  const key = keys.find((candidate) => Array.isArray(record[candidate]));
+  if (!key) {
+    throw new Error(`${label} is unavailable in parser output`);
+  }
+  const values = record[key];
+  if (!Array.isArray(values)) {
+    throw new Error(`${label} must be an array`);
+  }
+  return values.map((value, index) => {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new Error(`${label}[${index}] must be a non-empty string`);
+    }
+    return value.trim();
+  });
 }
 
 function readEventRound(
@@ -528,60 +644,484 @@ function readHeader(input: unknown): Header {
   };
 }
 
-function buildInspectionPlayers(input: DemoParserInspectionInput) {
-  const seen = new Map<string, { id: string; name: string; side: "CT" | "T" }>();
-  for (const [index, record] of asRecords(
-    input.playerFirstConnectEvents,
-    "player_first_connect",
-  ).entries()) {
-    const id = readString(
+function parseCompetitiveParticipationEvidence(
+  input: DemoParserInspectionInput,
+  playerIdentities: readonly DemoImportPlayerIdentity[],
+): DemoImportCompetitiveParticipationEvidence[] {
+  const records = asRecords(
+    input.competitiveParticipationEvidence,
+    "competitive participation evidence",
+  );
+  if (records.length !== playerIdentities.length) {
+    throw new Error(
+      `parser returned ${records.length} competitive participation evidence records for ${playerIdentities.length} identities`,
+    );
+  }
+  const identityByParserInstance = new Map(
+    playerIdentities.map((identity) => [
+      parserInstanceKey(identity.id, identity.slot),
+      identity,
+    ]),
+  );
+  const seenIds = new Set<string>();
+  const seenSlots = new Set<number>();
+  return records.map((record, index) => {
+    const label = `competitive participation evidence[${index}]`;
+    const id = readSteamId(
       record,
       ["steamid", "user_steamid", "id"],
-      `player_first_connect[${index}].steamid`,
+      `${label}.id`,
     );
-    const name = readString(
+    const slot = readSlot(record, `${label}.slot`);
+    const competitiveEventReferenceCount = readNumber(
       record,
-      ["name", "user_name", "player_name"],
-      `player_first_connect[${index}].name`,
+      ["competitiveEventReferenceCount", "competitive_event_reference_count"],
+      `${label}.competitiveEventReferenceCount`,
+      { integer: true },
     );
-    if (!seen.has(id)) {
-      seen.set(id, {
-        id,
-        name,
-        side: readSide(record, `player_first_connect[${index}].team`),
-      });
+    if (competitiveEventReferenceCount < 0) {
+      throw new Error(
+        `${label}.competitiveEventReferenceCount must be non-negative`,
+      );
+    }
+    const competitiveEventKinds = readStringArray(
+      record,
+      ["competitiveEventKinds", "competitive_event_kinds"],
+      `${label}.competitiveEventKinds`,
+    );
+    const identity = identityByParserInstance.get(parserInstanceKey(id, slot));
+    if (!identity) {
+      throw new Error(
+        `${label} does not match one parser instance by SteamID and slot`,
+      );
+    }
+    if (seenIds.has(id) || seenSlots.has(slot)) {
+      throw new Error(`${label} contains duplicate player identity or slot`);
+    }
+    if (
+      (competitiveEventReferenceCount === 0 && competitiveEventKinds.length > 0) ||
+      (competitiveEventReferenceCount > 0 && competitiveEventKinds.length === 0)
+    ) {
+      throw new Error(
+        `${label} has inconsistent competitive event evidence`,
+      );
+    }
+    if (
+      new Set(competitiveEventKinds).size !== competitiveEventKinds.length
+    ) {
+      throw new Error(`${label} contains duplicate competitive event kinds`);
+    }
+    const unsupportedKinds = competitiveEventKinds.filter(
+      (kind) => !DIRECT_COMPETITIVE_EVENT_KIND_SET.has(kind),
+    );
+    if (unsupportedKinds.length > 0) {
+      throw new Error(
+        `${label} contains event kinds outside the direct competitive evidence contract: ${unsupportedKinds.join(", ")}`,
+      );
+    }
+    const approvedCompetitiveEventKinds = competitiveEventKinds as DemoImportCompetitiveParticipationEvidence["competitiveEventKinds"];
+    seenIds.add(id);
+    seenSlots.add(slot);
+    return {
+      id,
+      slot,
+      competitiveEventReferenceCount,
+      competitiveEventKinds: approvedCompetitiveEventKinds,
+    };
+  });
+}
+
+function recoverRosterEvidence(
+  input: DemoParserInspectionInput,
+  options: DemoImportRosterResolutionOptions = {},
+): RosterEvidence {
+  let playerIdentities: DemoImportPlayerIdentity[];
+  try {
+    const identityRecords = asRecords(input.playerIdentities, "player identities");
+    if (identityRecords.length === 0) {
+      throw new Error("parser returned no player identities");
+    }
+    const identitiesById = new Map<string, DemoImportPlayerIdentity>();
+    const identitiesBySlot = new Map<number, DemoImportPlayerIdentity>();
+    for (const [index, record] of identityRecords.entries()) {
+      const label = `player identities[${index}]`;
+      const identity: DemoImportPlayerIdentity = {
+        id: readSteamId(record, ["steamid", "user_steamid", "id"], `${label}.id`),
+        name: readString(record, ["name", "user_name", "player_name"], `${label}.name`),
+        slot: readSlot(record, `${label}.slot`),
+        finalSide: readOptionalSide(record, `${label}.finalSide`, [
+          "final_side",
+          "finalSide",
+          "team",
+          "side",
+        ]),
+      };
+      const previousById = identitiesById.get(identity.id);
+      if (previousById) {
+        throw new Error(
+          `parser returned duplicate logical SteamID ${identity.id} across parser instances at slots ${previousById.slot} and ${identity.slot}; reconnect identity cannot be resolved without connection evidence`,
+        );
+      }
+      const previousBySlot = identitiesBySlot.get(identity.slot);
+      if (previousBySlot) {
+        throw new Error(
+          `parser slot ${identity.slot} is reused by multiple parser instances; connection epoch evidence is unavailable`,
+        );
+      }
+      identitiesById.set(identity.id, identity);
+      identitiesBySlot.set(identity.slot, identity);
+    }
+    playerIdentities = [...identitiesById.values()];
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new DemoRosterRecoveryError(
+      `浏览器本地已解析 Demo，但 parser participant identities 无法作为可靠身份记录使用；原始文件未上传。（${detail}）`,
+    );
+  }
+
+  const identityById = new Map(
+    playerIdentities.map((identity) => [identity.id, identity]),
+  );
+  // `(SteamID, slot)` identifies the parser instance used to join its
+  // identity, evidence and round-side records. It is not the logical roster
+  // identity; the latter is the stable SteamID after duplicate checks pass.
+  const identityByParserInstance = new Map(
+    playerIdentities.map((identity) => [
+      parserInstanceKey(identity.id, identity.slot),
+      identity,
+    ]),
+  );
+  let competitiveParticipationEvidence: DemoImportCompetitiveParticipationEvidence[];
+  try {
+    competitiveParticipationEvidence = parseCompetitiveParticipationEvidence(
+      input,
+      playerIdentities,
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new DemoRosterRecoveryError(
+      `浏览器本地已解析 Demo，但 parser competitive-participant evidence 无法与 player identity 可靠对应；原始文件未上传。（${detail}）`,
+      { unresolvedIdentityIds: playerIdentities.map((identity) => identity.id) },
+    );
+  }
+  let roundSideSnapshots: DemoImportRoundSideSnapshot[];
+  try {
+    const snapshotRecords = asRecords(
+      input.roundSideSnapshots,
+      "round-side snapshots",
+    );
+    if (snapshotRecords.length === 0) {
+      throw new Error("parser returned no round-specific side snapshots");
+    }
+    const seenRounds = new Set<number>();
+    roundSideSnapshots = snapshotRecords.map((record, snapshotIndex) => {
+      const snapshotLabel = `round-side snapshots[${snapshotIndex}]`;
+      const roundNumber = readNumber(
+        record,
+        ["roundNumber", "round", "number"],
+        `${snapshotLabel}.roundNumber`,
+        { integer: true },
+      );
+      const freezeEndTick = readNumber(
+        record,
+        ["freezeEndTick", "freeze_end_tick", "tick"],
+        `${snapshotLabel}.freezeEndTick`,
+        { integer: true },
+      );
+      if (roundNumber < 1 || freezeEndTick < 0) {
+        throw new Error(`${snapshotLabel} has an invalid round boundary`);
+      }
+      if (seenRounds.has(roundNumber)) {
+        throw new Error(
+          `parser returned more than one round-side snapshot for Round ${roundNumber}`,
+        );
+      }
+      seenRounds.add(roundNumber);
+      const playerRecords = asRecords(
+        asArrayValue(record.players, `${snapshotLabel}.players`),
+        `${snapshotLabel}.players`,
+      );
+      if (playerRecords.length === 0) {
+        throw new Error(`${snapshotLabel} contains no round-side player evidence`);
+      }
+      const seenIds = new Set<string>();
+      const seenSlots = new Set<number>();
+      const snapshotPlayers: DemoImportRoundSidePlayer[] = playerRecords.map(
+        (playerRecord, playerIndex) => {
+          const playerLabel = `${snapshotLabel}.players[${playerIndex}]`;
+          const id = readSteamId(
+            playerRecord,
+            ["steamid", "user_steamid", "id"],
+            `${playerLabel}.id`,
+          );
+          const name = readString(
+            playerRecord,
+            ["name", "user_name", "player_name"],
+            `${playerLabel}.name`,
+          );
+          const slot = readSlot(playerRecord, `${playerLabel}.slot`);
+          const side = readSide(playerRecord, `${playerLabel}.side`, [
+            "side",
+            "team",
+            "m_iTeamNum",
+            "team_num",
+            "teamNum",
+          ]);
+          const identity = identityByParserInstance.get(
+            parserInstanceKey(id, slot),
+          );
+          if (!identity) {
+            throw new Error(
+              `${playerLabel} does not match one parser instance by SteamID and slot`,
+            );
+          }
+          if (seenIds.has(id) || seenSlots.has(slot)) {
+            throw new Error(
+              `${snapshotLabel} contains duplicate player identity or slot`,
+            );
+          }
+          seenIds.add(id);
+          seenSlots.add(slot);
+          return { id, name, slot, side };
+        },
+      );
+      return { roundNumber, freezeEndTick, players: snapshotPlayers };
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new DemoRosterRecoveryError(
+      `浏览器本地已解析 Demo，但回合阵营证据无法与 player identity 可靠对应；原始文件未上传。（${detail}）`,
+    );
+  }
+
+  const evidenceById = new Map(
+    competitiveParticipationEvidence.map((evidence) => [evidence.id, evidence]),
+  );
+  let confirmedRosterIds: readonly string[] | undefined;
+  if (options.rosterConfirmation) {
+    try {
+      confirmedRosterIds = DemoImportRosterConfirmationSchema.parse(
+        options.rosterConfirmation,
+      ).matchRosterIds;
+    } catch {
+      throw new DemoRosterValidationError(
+        "用户确认的 match roster 必须包含 10 个唯一玩家身份；原始文件未上传。",
+      );
     }
   }
-  const players = [...seen.values()];
-  if (
-    players.length !== 10 ||
-    players.filter((player) => player.side === "CT").length !== 5 ||
-    players.filter((player) => player.side === "T").length !== 5
-  ) {
-    throw new Error("Demo does not contain ten unique players with five CT and five T");
+  let candidateIds: Set<string>;
+  let resolutionMode: DemoImportRosterResolution["mode"];
+  let unresolvedIdentityIds: string[];
+  let confirmedNonRosterIdentityIds: string[];
+  if (confirmedRosterIds) {
+    const confirmedIdSet = new Set(confirmedRosterIds);
+    if (
+      confirmedRosterIds.length !== 10 ||
+      confirmedIdSet.size !== confirmedRosterIds.length ||
+      [...confirmedIdSet].some((id) => !identityById.has(id))
+    ) {
+      throw new DemoRosterValidationError(
+        "用户确认的 match roster 必须包含 10 个来自 parser identity 的唯一玩家；原始文件未上传。",
+      );
+    }
+    candidateIds = confirmedIdSet;
+    resolutionMode = "user-confirmed";
+    unresolvedIdentityIds = [];
+    confirmedNonRosterIdentityIds = playerIdentities
+      .filter((identity) => !candidateIds.has(identity.id))
+      .map((identity) => identity.id);
+  } else {
+    const competitiveIdentities = playerIdentities.filter(
+      (identity) =>
+        (evidenceById.get(identity.id)?.competitiveEventKinds.length ?? 0) > 0,
+    );
+    candidateIds = new Set(competitiveIdentities.map((identity) => identity.id));
+    unresolvedIdentityIds = playerIdentities
+      .filter((identity) => !candidateIds.has(identity.id))
+      .map((identity) => identity.id);
+    if (candidateIds.size !== 10) {
+      const candidateNames = competitiveIdentities
+        .map((identity) => `${identity.name} [${identity.id}]`)
+        .join("、");
+      const unresolvedNames = playerIdentities
+        .filter((identity) => unresolvedIdentityIds.includes(identity.id))
+        .map((identity) => `${identity.name} [${identity.id}]`)
+        .join("、");
+      throw new DemoRosterRecoveryError(
+        `浏览器本地已解析 Demo，但 parser 当前能确认 ${candidateIds.size} 个身份带有可追溯的 competitive-participant event references，无法在不猜测的情况下恢复 10 人 match roster；候选：${candidateNames || "无"}；unresolved：${unresolvedNames || "无"}。原始文件未上传。`,
+        {
+          unresolvedIdentityIds,
+          candidateIdentityIds: [...candidateIds],
+        },
+      );
+    }
+    resolutionMode = "automatic";
+    confirmedNonRosterIdentityIds = [];
   }
-  return players;
+
+  const rosterSnapshotPlayers = (snapshot: DemoImportRoundSideSnapshot) =>
+    snapshot.players.filter((player) => candidateIds.has(player.id));
+  const matchingSnapshots = roundSideSnapshots.filter((snapshot) => {
+    const players = rosterSnapshotPlayers(snapshot);
+    const ids = new Set(players.map((player) => player.id));
+    const ctCount = players.filter((player) => player.side === "CT").length;
+    const tCount = players.filter((player) => player.side === "T").length;
+    return (
+      players.length === 10 &&
+      ids.size === 10 &&
+      ctCount === 5 &&
+      tCount === 5 &&
+      [...candidateIds].every((id) => ids.has(id))
+    );
+  });
+  if (
+    matchingSnapshots.length > 0 &&
+    matchingSnapshots.length !== roundSideSnapshots.length
+  ) {
+    const incompleteRounds = roundSideSnapshots
+      .filter((snapshot) => !matchingSnapshots.includes(snapshot))
+      .map((snapshot) => {
+        const players = rosterSnapshotPlayers(snapshot);
+        const ctCount = players.filter((player) => player.side === "CT").length;
+        const tCount = players.filter((player) => player.side === "T").length;
+        return `R${snapshot.roundNumber}: roster evidence ${players.length} 人（${ctCount} CT / ${tCount} T）`;
+      })
+      .join("、");
+    throw new DemoRosterValidationError(
+      `浏览器本地已恢复 match roster，但部分回合缺少完整的 round-specific 5 CT / 5 T evidence：${incompleteRounds}。原始文件未上传。`,
+    );
+  }
+  if (matchingSnapshots.length === 0) {
+    const shapes = roundSideSnapshots
+      .map((snapshot) => {
+        const players = rosterSnapshotPlayers(snapshot);
+        const ctCount = players.filter((player) => player.side === "CT").length;
+        const tCount = players.filter((player) => player.side === "T").length;
+        return `R${snapshot.roundNumber}: roster evidence ${players.length} 人（${ctCount} CT / ${tCount} T），raw ${snapshot.players.length} 人`;
+      })
+      .join("、");
+    const message =
+      `浏览器本地已解析 Demo，但恢复出的 match roster 没有任何回合能提供完整的 5 CT / 5 T round-specific evidence。观测到：${shapes}。原始文件未上传。`;
+    if (resolutionMode === "user-confirmed") {
+      throw new DemoRosterValidationError(message);
+    }
+    throw new DemoRosterRecoveryError(message, {
+      unresolvedIdentityIds,
+      candidateIdentityIds: [...candidateIds],
+    });
+  }
+
+  const matchRoster = [...candidateIds]
+    .map((id) => {
+      const identity = identityById.get(id);
+      if (!identity) {
+        throw new DemoRosterRecoveryError(
+          `浏览器本地已解析 Demo，但 match roster 中的 ${id} 无法回溯到稳定 parser identity；原始文件未上传。`,
+          { unresolvedIdentityIds, candidateIdentityIds: [...candidateIds] },
+        );
+      }
+      return {
+        id: identity.id,
+        name: identity.name,
+        slot: identity.slot,
+      } satisfies DemoImportMatchRosterPlayer;
+    })
+    .sort((a, b) => a.slot - b.slot);
+
+  validateMatchRoster(matchRoster, rosterSnapshotPlayers(matchingSnapshots[0]));
+  const rosterResolution: DemoImportRosterResolution = {
+    mode: resolutionMode,
+    matchRosterIds: matchRoster.map((player) => player.id),
+    unresolvedIdentityIds,
+    confirmedNonRosterIdentityIds,
+  };
+  return {
+    playerIdentities,
+    competitiveParticipationEvidence,
+    rosterResolution,
+    matchRoster,
+    roundSideSnapshots,
+  };
+}
+
+function asArrayValue(value: unknown, label: string): readonly unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be an array`);
+  }
+  return value;
+}
+
+function validateMatchRoster(
+  roster: readonly DemoImportMatchRosterPlayer[],
+  sideEvidence: readonly DemoImportRoundSidePlayer[],
+): void {
+  const ids = new Set(roster.map((player) => player.id));
+  const slots = new Set(roster.map((player) => player.slot));
+  const sideIds = new Set(sideEvidence.map((player) => player.id));
+  const ctCount = sideEvidence.filter((player) => player.side === "CT").length;
+  const tCount = sideEvidence.filter((player) => player.side === "T").length;
+  if (
+    roster.length !== 10 ||
+    ids.size !== roster.length ||
+    slots.size !== roster.length ||
+    sideEvidence.length !== 10 ||
+    sideIds.size !== sideEvidence.length ||
+    sideIds.size !== ids.size ||
+    [...ids].some((id) => !sideIds.has(id)) ||
+    ctCount !== 5 ||
+    tCount !== 5
+  ) {
+    throw new DemoRosterValidationError(
+      `浏览器本地已恢复 match roster，但校验失败：需要 10 个唯一玩家、5 CT、5 T；实际为 ${roster.length} 个 roster 玩家、${ctCount} CT、${tCount} T。原始文件未上传。`,
+    );
+  }
 }
 
 export function buildDemoImportInspection(
   input: DemoParserInspectionInput,
+  options: DemoImportRosterResolutionOptions = {},
 ): DemoImportInspection {
   const header = readHeader(input.header);
-  const players = buildInspectionPlayers(input);
+  const rosterEvidence = recoverRosterEvidence(input, options);
   const rounds = createRoundDescriptors(input);
+  const snapshotRoundNumbers = new Set(
+    rosterEvidence.roundSideSnapshots.map((snapshot) => snapshot.roundNumber),
+  );
+  const missingSideEvidenceRounds = rounds
+    .filter((round) => !snapshotRoundNumbers.has(round.number))
+    .map((round) => `R${round.number}`);
+  if (missingSideEvidenceRounds.length > 0) {
+    throw new DemoRosterValidationError(
+      `浏览器本地已恢复 match roster，但以下可选回合缺少 round-specific CT/T side evidence：${missingSideEvidenceRounds.join(", ")}；原始文件未上传。`,
+    );
+  }
   const overview = MAP_OVERVIEWS[header.mapName] ?? null;
   const warnings = [
     "队伍组织名未从 Demo 原生恢复，以下使用阵营标签",
     "机器事件 marker 仅用于定位，不代表关键决策或推荐复盘时刻",
     "Round 结束 tick 不在可选择范围内，避免把比赛结果带入决策截点",
+    "player identity 来自 parser header；match roster 仅在 competitive-participant evidence 与 round-specific CT/T evidence 一致时恢复",
+    "当前 browser parser 未提供 spectator / observer / coach 的独立 role 或 lifecycle evidence；无法确定的 identity 保持 unresolved，不由 economy、track 或数组顺序补齐",
   ];
+  if (rosterEvidence.rosterResolution.unresolvedIdentityIds.length > 0) {
+    const unresolvedNames = rosterEvidence.rosterResolution.unresolvedIdentityIds
+      .map(
+        (id) =>
+          rosterEvidence.playerIdentities.find((identity) => identity.id === id)
+            ?.name ?? id,
+      )
+      .join("、");
+    warnings.push(
+      `${rosterEvidence.rosterResolution.unresolvedIdentityIds.length} 个 parser participant identity 尚未被自动分类为选手或非参赛身份（${unresolvedNames}）；未将其强行写入 match roster。`,
+    );
+  }
   if (!overview) {
     warnings.push("该地图缺少已批准的 overview metadata，当前只能检查边界，不能生成 normalized state");
   }
   warnings.push("当前 Demo 没有自动附带可用于战术语义的地图 raster；空间预览需 Human QA 明确确认");
 
   return DemoImportInspectionSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 3,
     fileName: input.fileName,
     fileSize: input.fileSize,
     source: {
@@ -602,7 +1142,12 @@ export function buildDemoImportInspection(
       { label: "T side", side: "T", playerCount: 5 },
       { label: "CT side", side: "CT", playerCount: 5 },
     ],
-    players,
+    playerIdentities: rosterEvidence.playerIdentities,
+    competitiveParticipationEvidence:
+      rosterEvidence.competitiveParticipationEvidence,
+    rosterResolution: rosterEvidence.rosterResolution,
+    matchRoster: rosterEvidence.matchRoster,
+    roundSideSnapshots: rosterEvidence.roundSideSnapshots,
     rounds,
     markers: buildInspectionMarkers(input, rounds),
     warnings,
@@ -615,21 +1160,101 @@ function readOptionalString(record: ParserRecord, keys: readonly string[]): stri
 
 function normalizeTickRows(
   rows: readonly unknown[],
-  roster: readonly DemoImportInspection["players"][number][],
+  roster: readonly DemoImportInspection["matchRoster"][number][],
   sideRows: readonly unknown[] = [],
   selectedTick: number,
+  fallbackSideRows: readonly DemoImportRoundSidePlayer[] = [],
 ) {
+  // A logical roster identity is a stable SteamID. The parser slot is still
+  // required at this boundary to prove that a selected row belongs to the
+  // same parser instance that produced the validated roster/side evidence.
+  const rosterByParserInstance = new Map(
+    roster.map((player) => [
+      parserInstanceKey(player.id, player.slot),
+      player,
+    ]),
+  );
   const rosterById = new Map(roster.map((player) => [player.id, player]));
-  const sideById = new Map<string, "CT" | "T">();
+  const canonicalSideByParserInstance = new Map(
+    fallbackSideRows.map((player) => [
+      parserInstanceKey(player.id, player.slot),
+      player.side,
+    ]),
+  );
+  if (fallbackSideRows.length === 0) {
+    throw new DemoRosterValidationError(
+      "selected Round lacks validated selected-round CT/T side evidence for the recovered match roster;原始文件未上传。",
+    );
+  }
+  const providedSideByParserInstance = new Map<string, "CT" | "T">();
   for (const [index, row] of asRecords(sideRows, "freeze-end parseTicks").entries()) {
-    const id = readString(row, ["steamid", "user_steamid", "id"], `freeze-end parseTicks[${index}].steamid`);
-    const namedSide = readString(row, ["team", "side"], "freeze-end team", { required: false });
-    const teamNumber = readNumber(row, ["m_iTeamNum", "team_num", "teamNum"], "freeze-end team", { required: false, integer: true });
-    if (namedSide !== null || teamNumber !== null) {
-      sideById.set(id, readSide(row, `freeze-end parseTicks[${index}].team`));
+    const id = readSteamId(
+      row,
+      ["steamid", "user_steamid", "id"],
+      `freeze-end parseTicks[${index}].steamid`,
+    );
+    const slot = readSlot(row, `freeze-end parseTicks[${index}].slot`);
+    const side = readOptionalSide(row, `freeze-end parseTicks[${index}].team`, [
+      "side",
+      "team",
+      "m_iTeamNum",
+      "team_num",
+      "teamNum",
+    ]);
+    if (side !== null) {
+      const parserKey = parserInstanceKey(id, slot);
+      const rosterPlayer = rosterById.get(id);
+      if (rosterPlayer && rosterPlayer.slot !== slot) {
+        throw new DemoRosterValidationError(
+          `round-specific side evidence pairs recovered match roster player ${id} with parser slot ${slot}, expected slot ${rosterPlayer.slot};原始文件未上传。`,
+        );
+      }
+      if (providedSideByParserInstance.has(parserKey)) {
+        throw new DemoRosterValidationError(
+          `round-specific side evidence contains duplicate parser instance ${id} at slot ${slot};原始文件未上传。`,
+        );
+      }
+      providedSideByParserInstance.set(parserKey, side);
     }
   }
-  const normalized = asRecords(rows, "parseTicks").map((record, index) => {
+  const sideByParserInstance = new Map<string, "CT" | "T">();
+  for (const player of roster) {
+    const parserKey = parserInstanceKey(player.id, player.slot);
+    const canonicalSide = canonicalSideByParserInstance.get(parserKey);
+    if (canonicalSide === undefined) {
+      throw new DemoRosterValidationError(
+        `selected Round side snapshot lacks recovered match roster parser instance ${player.id} at slot ${player.slot};原始文件未上传。`,
+      );
+    }
+    if (sideRows.length > 0) {
+      const providedSide = providedSideByParserInstance.get(parserKey);
+      if (providedSide !== undefined && providedSide !== canonicalSide) {
+        throw new DemoRosterValidationError(
+          `provided round-specific side evidence conflicts with the canonical selected Round snapshot for recovered match roster parser instance ${player.id} at slot ${player.slot};原始文件未上传。`,
+        );
+      }
+    }
+    sideByParserInstance.set(parserKey, canonicalSide);
+  }
+  const parserRows = asRecords(rows, "parseTicks");
+  const normalized = parserRows
+    .map((record, index) => {
+      const id = readSteamId(
+        record,
+        ["steamid", "user_steamid", "id"],
+        `parseTicks[${index}].steamid`,
+      );
+      const slot = readSlot(record, `parseTicks[${index}].slot`);
+      return {
+        record,
+        index,
+        id,
+        slot,
+        parserKey: parserInstanceKey(id, slot),
+      };
+    })
+    .filter(({ parserKey }) => rosterByParserInstance.has(parserKey))
+    .map(({ record, index, id, slot, parserKey }) => {
     const rowTick = readNumber(record, ["tick"], `parseTicks[${index}].tick`, {
       required: false,
       integer: true,
@@ -639,13 +1264,25 @@ function normalizeTickRows(
         `parseTicks[${index}] contains a future tick ${rowTick} after selected tick ${selectedTick}`,
       );
     }
-    const id = readString(record, ["steamid", "user_steamid", "id"], `parseTicks[${index}].steamid`);
     const name = readString(record, ["name", "user_name", "player_name"], `parseTicks[${index}].name`);
-    const rosterPlayer = rosterById.get(id);
-    const side =
-      sideById.get(id) ??
-      rosterPlayer?.side ??
-      readSide(record, `parseTicks[${index}].team`);
+    const rowSide = readOptionalSide(record, `parseTicks[${index}].team`, [
+      "side",
+      "team",
+      "m_iTeamNum",
+      "team_num",
+      "teamNum",
+    ]);
+    const side = sideByParserInstance.get(parserKey);
+    if (side !== undefined && rowSide !== null && side !== rowSide) {
+      throw new DemoRosterValidationError(
+        `round-specific side evidence conflicts with exact tick side for recovered match roster parser instance ${id} at slot ${slot};原始文件未上传。`,
+      );
+    }
+    if (!rosterByParserInstance.has(parserKey) || side === undefined) {
+      throw new DemoRosterValidationError(
+        `exact tick lacks selected-round CT/T side evidence for recovered match roster parser instance ${id} at slot ${slot};原始文件未上传。`,
+      );
+    }
     return {
       id,
       name,
@@ -663,7 +1300,7 @@ function normalizeTickRows(
       place: readOptionalString(record, ["last_place_name", "place"]),
       gameTime: readNumber(record, ["game_time", "gameTime"], `parseTicks[${index}].game_time`),
     };
-  });
+    });
   const ids = new Set(normalized.map((player) => player.id));
   if (
     normalized.length !== 10 ||
@@ -671,7 +1308,9 @@ function normalizeTickRows(
     normalized.filter((player) => player.side === "CT").length !== 5 ||
     normalized.filter((player) => player.side === "T").length !== 5
   ) {
-    throw new Error("exact tick does not contain ten unique players with five CT and five T");
+    throw new DemoRosterValidationError(
+      `exact tick does not contain the recovered 5v5 match roster: expected 10 unique players with five CT and five T, got ${normalized.length} players (${normalized.filter((player) => player.side === "CT").length} CT / ${normalized.filter((player) => player.side === "T").length} T);原始文件未上传。`,
+    );
   }
   const gameTimes = normalized.map((player) => player.gameTime);
   const gameTime = gameTimes[0];
@@ -719,7 +1358,11 @@ function foldBombState(
     if (eventName === "bomb_pickup") {
       state = {
         status: "carried",
-        carrierId: readOptionalString(record, ["user_steamid", "steamid"]),
+        carrierId: readOptionalSteamId(
+          record,
+          ["user_steamid", "steamid"],
+          "bomb event carrier SteamID",
+        ),
         carrierName: readOptionalString(record, ["user_name", "name"]),
         plantGameTime: null,
       };
@@ -824,19 +1467,25 @@ function buildNormalizedTime(
 
 export function buildDemoImportNormalizedState(
   input: DemoParserSelectionInput,
+  options: DemoImportRosterResolutionOptions = {},
 ): NormalizedMatchState {
-  const inspection = buildDemoImportInspection(input);
+  const inspection = buildDemoImportInspection(input, options);
   const selectedRound = getSelectableRound(inspection, input.roundNumber);
   assertSelectableTick(selectedRound, input.tick);
   const overview = inspection.map.overview;
   if (!overview) {
-    throw new Error("map overview metadata is unavailable for normalized state");
+    throw new DemoMapMetadataError(
+      `match roster 已成功恢复，但 ${inspection.map.name} 缺少已批准的 overview metadata；无法生成 normalized state。`,
+    );
   }
   const { players, gameTime } = normalizeTickRows(
     input.tickRows,
-    inspection.players,
+    inspection.matchRoster,
     input.sideRows,
     input.tick,
+    inspection.roundSideSnapshots.find(
+      (snapshot) => snapshot.roundNumber === selectedRound.number,
+    )?.players ?? [],
   );
   const bomb = foldBombState(input, selectedRound);
   const normalizedBomb = {
@@ -896,7 +1545,8 @@ export function buildDemoImportNormalizedState(
       availableFields: [
         "header.map_name / demo version / patch version",
         "round_start / round_freeze_end / round_end",
-        "player_first_connect identity + team side",
+        "parser header player identity + final-side metadata (not roster truth)",
+        "round freeze-end economy side evidence for match roster and selected Round CT/T sides",
         "X/Y/Z, health, is_alive, active_weapon_name, last_place_name, game_time",
         "bomb_* events at or before the selected tick",
       ],
@@ -907,7 +1557,7 @@ export function buildDemoImportNormalizedState(
         "未经过 Human QA 的地图 raster / route calibration",
       ],
       derivedFields: [
-        "T/CT side label from demoparser2 team value",
+        "T/CT side label from selected round freeze-end side evidence and exact tick rows",
         "score from round_end winner events before the selected Round",
         "clock from round_start/game_time and the declared 115-second rule",
         "bomb status from ordered bomb_* events through the selected tick",
