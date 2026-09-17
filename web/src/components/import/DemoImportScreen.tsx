@@ -6,6 +6,7 @@ import { MetadataStrip, Num } from "@/components/layout/MetadataStrip";
 import { PageFrame } from "@/components/layout/PageFrame";
 import { ExperienceShell } from "@/components/experience/ExperienceShell";
 import { buildCurrentStatePreview } from "@/domain/currentStatePreview";
+import { ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME } from "@/domain/mapCalibration";
 import {
   filterMarkersThroughTick,
   formatDemoClock,
@@ -67,6 +68,7 @@ type AuthoringForm = {
   professionalOutcome: string;
   professionalObservations: [string, string, string];
   useMirageRaster: boolean;
+  useAncientRaster: boolean;
   perspectiveSide: "CT" | "T";
   observableConfirmed: boolean;
   observableBombVisible: boolean;
@@ -97,6 +99,7 @@ function initialAuthoringForm(): AuthoringForm {
     professionalOutcome: "",
     professionalObservations: ["", "", ""],
     useMirageRaster: false,
+    useAncientRaster: false,
     perspectiveSide: "T",
     observableConfirmed: false,
     observableBombVisible: false,
@@ -452,7 +455,9 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
       mapAsset:
         authoring.useMirageRaster && draft.normalizedMatchState.map.name === "de_mirage"
           ? "/maps/Lite2_CurrentStateBase.png"
-          : null,
+          : authoring.useAncientRaster && draft.normalizedMatchState.map.name === "de_ancient"
+            ? ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME.asset
+            : null,
     };
   }
 
@@ -468,10 +473,17 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
       const currentState = authoringPayload.mapAsset
         ? buildCurrentStatePreview({
             ...draft.normalizedMatchState,
-            map: {
-              ...draft.normalizedMatchState.map,
-              asset: "/maps/Lite2_Map.png",
-            },
+            map:
+              authoringPayload.mapAsset === ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME.asset
+                ? {
+                    ...draft.normalizedMatchState.map,
+                    asset: ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME.asset,
+                    render: ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME,
+                  }
+                : {
+                    ...draft.normalizedMatchState.map,
+                    asset: "/maps/Lite2_Map.png",
+                  },
           }, {
             visiblePlayerIds: authoringPayload.perspective.visiblePlayerIds,
             bombVisibility: authoringPayload.perspective.bombVisibility,
@@ -855,11 +867,16 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
                 </div>
                 <div className="flex flex-col gap-3">
                   <h3 className="text-sm font-semibold text-app-text">空间边界</h3>
-                  <p className="text-xs leading-relaxed text-app-muted">新 Demo 默认不附带可用于战术语义的 raster。只有 Mirage 才能由 Human 明确确认复用既有 Current State 底图；不编辑坐标、不伪造路线。</p>
+                  <p className="text-xs leading-relaxed text-app-muted">新 Demo 默认不附带可用于战术语义的 raster。只有地图匹配且经过当前导入 Human QA 确认的底图才会用于位置可视化；不编辑坐标、不伪造路线。</p>
                   {draft.normalizedMatchState.map.name === "de_mirage" ? (
                     <label className="flex cursor-pointer gap-3 rounded-md border border-app-line p-3 text-xs leading-relaxed text-app-text">
-                      <input type="checkbox" checked={authoring.useMirageRaster} onChange={(event) => setAuthoring((current) => ({ ...current, useMirageRaster: event.target.checked }))} className="mt-0.5 h-4 w-4 accent-[#dfa45b]" />
+                      <input type="checkbox" data-testid="import-mirage-raster" checked={authoring.useMirageRaster} onChange={(event) => setAuthoring((current) => ({ ...current, useMirageRaster: event.target.checked }))} className="mt-0.5 h-4 w-4 accent-[#dfa45b]" />
                       <span>我已人工确认现有 Mirage raster 可用于本场 practice 的空间阅读（不是 Demo 原生事实）。</span>
+                    </label>
+                  ) : draft.normalizedMatchState.map.name === "de_ancient" ? (
+                    <label className="flex cursor-pointer gap-3 rounded-md border border-app-line p-3 text-xs leading-relaxed text-app-text">
+                      <input type="checkbox" data-testid="import-ancient-raster" checked={authoring.useAncientRaster} onChange={(event) => setAuthoring((current) => ({ ...current, useAncientRaster: event.target.checked }))} className="mt-0.5 h-4 w-4 accent-[#dfa45b]" />
+                      <span>我已人工确认公开 Ancient radar 与本场 Demo 的世界坐标 frame 对齐；它只用于位置可视化，不自动生成路线或战术语义。</span>
                     </label>
                   ) : (
                     <p className="border border-app-line p-3 text-xs text-app-muted">当前地图没有 Gate 4 可复用的人工确认 raster；practice 将保留无底图状态。</p>

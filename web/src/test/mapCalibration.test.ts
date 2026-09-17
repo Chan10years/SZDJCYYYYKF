@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import normalizedMatchState from "@/data/realMatch/lite2-g2-spirit-r34.json";
 import {
+  ANCIENT_CURRENT_STATE_MAP_CALIBRATION,
+  ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME,
   LITE2_CURRENT_STATE_MAP_CALIBRATION,
   normalizedToImagePosition,
+  normalizedToImagePositionWithCalibration,
 } from "@/domain/mapCalibration";
 import {
+  ANCIENT_RADAR_METADATA,
   MIRAGE_RADAR_METADATA,
   worldToNormalizedPosition,
 } from "@/domain/coordinateAdapter";
@@ -69,5 +73,30 @@ describe("Lite2 current-state image calibration", () => {
     expect(magixx?.imagePosition).toEqual(
       normalizedToImagePosition(magixx!.normalizedPosition),
     );
+  });
+});
+
+describe("Ancient current-state image calibration", () => {
+  it("uses the published 1024x1024 radar frame without an affine guess", () => {
+    expect(ANCIENT_CURRENT_STATE_MAP_CALIBRATION).toMatchObject({
+      map: "de_ancient",
+      asset: "/maps/Ancient_CurrentStateBase.png",
+      imageWidth: 1024,
+      imageHeight: 1024,
+      coordinateFrame: "de_ancient-radar-overview",
+      projection: "cs2-radar-overview",
+      radarWidth: 1024,
+      radarHeight: 1024,
+      overviewSource: ANCIENT_RADAR_METADATA.source,
+    });
+  });
+
+  it("projects Ancient radar coordinates directly into the native raster", () => {
+    expect(
+      normalizedToImagePositionWithCalibration(
+        { radarX: 317.44, radarY: 256, x: 31, y: 25 },
+        ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME,
+      ),
+    ).toEqual({ x: 317.44, y: 256 });
   });
 });

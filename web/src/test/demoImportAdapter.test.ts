@@ -11,6 +11,8 @@ import {
   DemoRosterRecoveryError,
   DemoRosterValidationError,
 } from "@/domain/demoImportErrors";
+import { buildCurrentStatePreview } from "@/domain/currentStatePreview";
+import { ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME } from "@/domain/mapCalibration";
 
 const players = [
   ...Array.from({ length: 5 }, (_, index) => ({
@@ -1041,5 +1043,50 @@ describe("demoparser2 output adapter", () => {
         }),
       ),
     ).toThrow(DemoMapMetadataError);
+  });
+
+  it("builds an Ancient normalized state with the published overview metadata", () => {
+    const state = buildDemoImportNormalizedState(
+      selectionInput({
+        header: {
+          ...(baseInspectionInput.header as ParserRecord),
+          map_name: "de_ancient",
+        },
+      }),
+    );
+
+    expect(state.map).toMatchObject({
+      name: "de_ancient",
+      asset: null,
+      overview: {
+        posX: -2953,
+        posY: 2164,
+        scale: 5,
+        radarWidth: 1024,
+        radarHeight: 1024,
+        source:
+          "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_ancient.txt",
+      },
+    });
+
+    expect(state.map.render).toBeUndefined();
+    const preview = buildCurrentStatePreview({
+      ...state,
+      map: {
+        ...state.map,
+        asset: ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME.asset,
+        render: ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME,
+      },
+    });
+    expect(preview.asset).toBe("/maps/Ancient_CurrentStateBase.png");
+    expect(preview.coordinateFrame).toBe("de_ancient-radar-overview");
+    expect(preview.players[0].imagePosition).toEqual({
+      x: 590.6,
+      y: 432.8,
+    });
+    expect(preview.players[1].imagePosition).toEqual({
+      x: 594.6,
+      y: 434.8,
+    });
   });
 });

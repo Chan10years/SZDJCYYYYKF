@@ -14,7 +14,7 @@ import type {
 
 const SHA = "B".repeat(64);
 
-function makeData() {
+function makeData(mapName = "de_mirage") {
   const players = Array.from({ length: 10 }, (_, index) => ({
     slot: index,
     steamid: String(index + 1),
@@ -31,7 +31,7 @@ function makeData() {
   }));
   const raw = {
     header: {
-      map_name: "de_mirage",
+      map_name: mapName,
       demo_version_name: "demo",
       patch_version: "patch",
       server_name: "new user Demo",
@@ -101,8 +101,9 @@ function fillById(id: string, value: string) {
 
 function makeClient(
   onProgress?: (progress: DemoImportProgress) => void,
+  mapName = "de_mirage",
 ): DemoImportClientLike {
-  const { inspection, normalizedMatchState } = makeData();
+  const { inspection, normalizedMatchState } = makeData(mapName);
   return {
     load: vi.fn(async () => ({ inspection, mode: "browser-local" as const })),
     select: vi.fn(async () => {
@@ -183,5 +184,24 @@ describe("DemoImportScreen", () => {
     await user.upload(screen.getByTestId("demo-import-input"), new File([new Uint8Array(15)], "broken.dem"));
     expect(await screen.findByRole("alert")).toHaveTextContent("这场 Demo 当前无法读取");
     expect(screen.queryByText(/Lite2|G2 vs Team Spirit/)).not.toBeInTheDocument();
+  });
+
+  it("offers only the map-matched Ancient radar after Ancient state recovery", async () => {
+    const user = userEvent.setup();
+    render(<DemoImportScreen clientFactory={(onProgress) => makeClient(onProgress, "de_ancient")} />);
+
+    await user.upload(
+      screen.getByTestId("demo-import-input"),
+      new File([new Uint8Array(15)], "ancient.dem"),
+    );
+    await screen.findByTestId("demo-import-inspection");
+    await user.click(screen.getByTestId("demo-restore-state"));
+
+    await screen.findByTestId("demo-import-draft");
+    expect(screen.getByTestId("import-ancient-raster")).toBeInTheDocument();
+    expect(screen.queryByTestId("import-mirage-raster")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("import-ancient-raster"));
+    expect(screen.getByTestId("import-ancient-raster")).toBeChecked();
   });
 });

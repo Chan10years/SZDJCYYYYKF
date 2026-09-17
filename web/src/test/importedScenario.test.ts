@@ -124,4 +124,38 @@ describe("imported machine-only Draft promotion", () => {
       }),
     ).toThrow();
   });
+
+  it("accepts the Ancient raster only for an Ancient normalized state", () => {
+    const ancientState = {
+      ...normalizedMatchState,
+      map: {
+        ...normalizedMatchState.map,
+        name: "de_ancient",
+        overview: {
+          posX: -2953,
+          posY: 2164,
+          scale: 5,
+          radarWidth: 1024,
+          radarHeight: 1024,
+          source:
+            "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_ancient.txt",
+        },
+      },
+    };
+    const draft = buildScenarioDraft(ancientState);
+    const scenario = buildImportedPracticeScenario(
+      draft,
+      { ...authoring, mapAsset: "/maps/Ancient_CurrentStateBase.png" },
+      SCENARIO_DRAFT_QA_CHECK_IDS,
+    );
+
+    expect(scenario.mapBase).toBe("/maps/Ancient_CurrentStateBase.png");
+    expect(() =>
+      buildImportedPracticeScenario(
+        buildScenarioDraft(normalizedMatchState),
+        { ...authoring, mapAsset: "/maps/Ancient_CurrentStateBase.png" },
+        SCENARIO_DRAFT_QA_CHECK_IDS,
+      ),
+    ).toThrow(/map/i);
+  });
 });

@@ -51,7 +51,12 @@ export const ImportedScenarioAuthoringSchema = z
     professional: ProfessionalReferenceSchema,
     /** Human QA boundary; the machine Draft remains complete, practice does not. */
     perspective: ImportedObservableBoundarySchema,
-    mapAsset: z.literal("/maps/Lite2_CurrentStateBase.png").nullable(),
+    mapAsset: z
+      .enum([
+        "/maps/Lite2_CurrentStateBase.png",
+        "/maps/Ancient_CurrentStateBase.png",
+      ])
+      .nullable(),
   })
   .strict();
 
@@ -152,12 +157,16 @@ export function buildImportedPracticeScenario(
     );
   }
 
+  const mapAssetMap = {
+    "/maps/Lite2_CurrentStateBase.png": "de_mirage",
+    "/maps/Ancient_CurrentStateBase.png": "de_ancient",
+  } as const;
   if (
     authoring.mapAsset !== null &&
-    state.map.name !== "de_mirage"
+    mapAssetMap[authoring.mapAsset] !== state.map.name
   ) {
     throw new Error(
-      "the existing Mirage raster can only be attached to a Mirage Demo",
+      "a current-state raster can only be attached to a matching Demo map",
     );
   }
 

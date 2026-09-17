@@ -1,4 +1,5 @@
 import {
+  ANCIENT_RADAR_METADATA,
   MIRAGE_RADAR_METADATA,
   type TacticalMapPosition,
 } from "./coordinateAdapter";
@@ -29,9 +30,42 @@ type RadarOverviewImageCalibration = ImageCalibrationBase & {
   radarHeight: number;
 };
 
+type CurrentStateRadarRenderFrame = RadarOverviewImageCalibration & {
+  asset: string;
+};
+
 export type ImageCalibration =
   | AffineImageCalibration
   | RadarOverviewImageCalibration;
+
+/**
+ * Ancient uses the native 1024x1024 CS2 radar frame. This frame is only
+ * attached to a selected Demo after the Human QA checkbox in the import flow;
+ * the machine-only normalized state intentionally keeps asset null.
+ */
+export const ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME = {
+  projection: "cs2-radar-overview",
+  asset: "/maps/Ancient_CurrentStateBase.png",
+  imageWidth: 1024,
+  imageHeight: 1024,
+  coordinateFrame: "de_ancient-radar-overview",
+  radarWidth: ANCIENT_RADAR_METADATA.radarWidth,
+  radarHeight: ANCIENT_RADAR_METADATA.radarHeight,
+  overviewSource: ANCIENT_RADAR_METADATA.source,
+} as const satisfies CurrentStateRadarRenderFrame;
+
+export const ANCIENT_CURRENT_STATE_MAP_CALIBRATION = {
+  map: "de_ancient",
+  ...ANCIENT_CURRENT_STATE_MAP_RENDER_FRAME,
+  overviewMetadata: ANCIENT_RADAR_METADATA,
+  provenance: {
+    sourceAsset:
+      "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/images/radars/de_ancient_radar_psd.png",
+    overviewLandmarks: "https://cs2opendev.github.io/CS2OpenDev-Docs/maps/",
+    note:
+      "Native CS2 radar overview frame; no affine crop, mirror, slot order, or Demo-specific coordinate adjustment.",
+  },
+} as const;
 
 type CalibrationLandmark = {
   id: string;

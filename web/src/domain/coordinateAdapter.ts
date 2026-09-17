@@ -30,6 +30,21 @@ export const MIRAGE_RADAR_METADATA: RadarMapMetadata = {
     "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_mirage.txt",
 };
 
+/**
+ * CS2's published Ancient overview frame. Keep this as data, not a map
+ * specific transform: every world position still goes through the shared
+ * worldToNormalizedPosition contract.
+ */
+export const ANCIENT_RADAR_METADATA: RadarMapMetadata = {
+  posX: -2953,
+  posY: 2164,
+  scale: 5,
+  radarWidth: 1024,
+  radarHeight: 1024,
+  source:
+    "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/data/radar_info/de_ancient.txt",
+};
+
 function assertFinite(value: number, field: string): void {
   if (!Number.isFinite(value)) {
     throw new Error(`Coordinate ${field} must be finite`);

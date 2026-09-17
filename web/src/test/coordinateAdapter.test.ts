@@ -64,4 +64,22 @@ describe("Gate 1 Mirage coordinate adapter", () => {
       ),
     ).toThrow();
   });
+
+  it("maps the published Ancient bombsite landmarks in the same radar frame", async () => {
+    const adapter = await loadCoordinateAdapter();
+    expect(adapter, "Ancient coordinate metadata is not implemented yet").not.toBeNull();
+    if (!adapter) return;
+
+    const bombsiteA = adapter.worldToNormalizedPosition(
+      { x: -1365.8, y: 884, z: 0 },
+      adapter.ANCIENT_RADAR_METADATA,
+    );
+    const bombsiteB = adapter.worldToNormalizedPosition(
+      { x: 1143, y: 116, z: 0 },
+      adapter.ANCIENT_RADAR_METADATA,
+    );
+
+    expect(bombsiteA).toMatchObject({ radarX: 317.44, radarY: 256, x: 31, y: 25 });
+    expect(bombsiteB).toMatchObject({ radarX: 819.2, radarY: 409.6, x: 80, y: 40 });
+  });
 });

@@ -27,6 +27,7 @@ import {
   type NormalizedMatchState,
 } from "./normalizedMatchState";
 import {
+  ANCIENT_RADAR_METADATA,
   MIRAGE_RADAR_METADATA,
   type RadarMapMetadata,
 } from "./coordinateAdapter";
@@ -93,6 +94,7 @@ export type DemoImportRosterResolutionOptions = {
 
 const MAP_OVERVIEWS: Record<string, RadarMapMetadata> = {
   de_mirage: MIRAGE_RADAR_METADATA,
+  de_ancient: ANCIENT_RADAR_METADATA,
   de_overpass: {
     posX: -4831,
     posY: 1781,
