@@ -12,9 +12,11 @@ type ContentPackQaScreenProps = {
   pack: RealContentPack;
 };
 
-function formatScore(score: Record<string, number>): string {
+function formatScore(
+  score: RealContentPack["entries"][number]["normalizedMatchState"]["round"]["score"],
+): string {
   return Object.entries(score)
-    .map(([team, value]) => `${team} ${value}`)
+    .map(([team, value]) => `${team} ${value ?? "unavailable"}`)
     .join(" : ");
 }
 

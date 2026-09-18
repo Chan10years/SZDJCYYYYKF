@@ -50,6 +50,38 @@ describe("NormalizedMatchState JSON boundary", () => {
     expect(() => contract.parseNormalizedMatchState({ ...fixture, tick: Number.NaN })).toThrow();
   });
 
+  it("accepts a fully unavailable score but rejects a partially known score", async () => {
+    const contract = await loadContract();
+    const fixture = await loadFixture();
+    expect(contract).not.toBeNull();
+    expect(fixture).not.toBeNull();
+    if (!contract || !fixture) return;
+
+    const unavailable = contract.parseNormalizedMatchState({
+      ...fixture,
+      round: {
+        ...fixture.round,
+        score: Object.fromEntries(
+          Object.keys(fixture.round.score).map((team) => [team, null]),
+        ),
+      },
+    });
+    expect(Object.values(unavailable.round.score)).toEqual([null, null]);
+
+    expect(() =>
+      contract.parseNormalizedMatchState({
+        ...fixture,
+        round: {
+          ...fixture.round,
+          score: {
+            [Object.keys(fixture.round.score)[0]]: 1,
+            [Object.keys(fixture.round.score)[1]]: null,
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
   it("validates a real non-Mirage snapshot without inventing a raster asset", async () => {
     const contract = await loadContract();
     expect(contract).not.toBeNull();

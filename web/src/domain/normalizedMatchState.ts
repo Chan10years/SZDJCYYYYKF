@@ -65,13 +65,22 @@ const PlayersSchema = z
   });
 
 const ScoreSchema = z
-  .record(z.string(), FiniteNumberSchema.int().min(0))
+  .record(z.string(), FiniteNumberSchema.int().min(0).nullable())
   .superRefine((score, context) => {
     const teams = Object.keys(score).filter((team) => team.trim().length > 0);
     if (teams.length !== 2) {
       context.addIssue({
         code: "custom",
         message: "a normalized match state score must contain exactly two teams",
+      });
+    }
+    const values = Object.values(score);
+    const hasUnavailableValue = values.some((value) => value === null);
+    const hasAvailableValue = values.some((value) => value !== null);
+    if (hasUnavailableValue && hasAvailableValue) {
+      context.addIssue({
+        code: "custom",
+        message: "score must be fully available or fully unavailable",
       });
     }
   });

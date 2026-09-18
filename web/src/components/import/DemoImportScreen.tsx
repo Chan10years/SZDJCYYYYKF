@@ -221,7 +221,7 @@ function MachineStateSummary({ draft }: { draft: ScenarioDraft }) {
         <dt className="text-app-muted">Round / Tick</dt>
         <dd className="font-mono tabular-nums text-app-text">{state.round.number} · {state.tick}</dd>
         <dt className="text-app-muted">时间 / 比分</dt>
-        <dd className="text-app-text">{state.time.display} · {Object.entries(state.round.score).map(([team, score]) => `${team} ${score}`).join(" : ")}</dd>
+        <dd className="text-app-text">{state.time.display} · {Object.entries(state.round.score).map(([team, score]) => `${team} ${score ?? "unavailable"}`).join(" : ")}</dd>
         <dt className="text-app-muted">C4</dt>
         <dd className="text-app-text">{state.bomb.carrierName ?? state.bomb.status}</dd>
       </dl>

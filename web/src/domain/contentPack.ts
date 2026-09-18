@@ -89,7 +89,7 @@ export type RealContentPackInput = {
 
 function formatScore(state: NormalizedMatchState): string {
   return Object.entries(state.round.score)
-    .map(([team, score]) => `${team} ${score}`)
+    .map(([team, score]) => `${team} ${score ?? "unavailable"}`)
     .join(" : ");
 }
 

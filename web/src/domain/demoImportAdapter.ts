@@ -1146,6 +1146,11 @@ type FixedMatchTeamMapping = {
   sidesByRound: ReadonlyMap<number, RoundTeamSides>;
 };
 
+type ScoreRecovery = {
+  score: Record<string, number | null>;
+  available: boolean;
+};
+
 /**
  * Establishes two stable, neutral match-team identities from the earliest
  * validated round-side snapshot. The labels are intentionally not team
@@ -1583,7 +1588,7 @@ function buildScore(
   rounds: readonly DemoImportRound[],
   roster: readonly DemoImportMatchRosterPlayer[],
   roundSideSnapshots: readonly DemoImportRoundSideSnapshot[],
-): Record<string, number> {
+): ScoreRecovery {
   const mapping = buildFixedMatchTeamMapping(roster, roundSideSnapshots);
   const selectedSides = mapping.sidesByRound.get(selectedRound.number);
   if (!selectedSides) {
@@ -1591,31 +1596,46 @@ function buildScore(
       `selected Round ${selectedRound.number} lacks a fixed match-team side mapping; no score was generated.`,
     );
   }
+  const unavailableScore = (): ScoreRecovery => ({
+    score: {
+      [`${selectedSides.teamASide} side`]: null,
+      [`${selectedSides.teamBSide} side`]: null,
+    },
+    available: false,
+  });
   const fixedScore: Record<FixedMatchTeam, number> = {
     teamA: 0,
     teamB: 0,
   };
   const countedRounds = new Map<number, FixedMatchTeam>();
+  let hasUnresolvedRoundEnd = false;
   for (const record of asRecords(input.roundEndEvents, "round_end")) {
+    if (record.is_warmup_period === true) {
+      continue;
+    }
     const event = normalizeEvent(record, "round_end");
     const temporalRound = findRoundForTick(rounds, event.tick);
     const eventRoundNumber = temporalRound?.number ?? event.roundNumber;
-    if (eventRoundNumber === null || eventRoundNumber >= selectedRound.number) {
+    if (eventRoundNumber === null) {
+      if (event.tick < selectedRound.startTick) {
+        hasUnresolvedRoundEnd = true;
+      }
+      continue;
+    }
+    if (eventRoundNumber >= selectedRound.number) {
       continue;
     }
     const roundSides = mapping.sidesByRound.get(eventRoundNumber);
     if (!roundSides) {
-      throw new DemoRosterValidationError(
-        `round_end for R${eventRoundNumber} has no validated round-specific CT/T mapping; no score was generated.`,
-      );
+      hasUnresolvedRoundEnd = true;
+      continue;
     }
     const winner = readString(record, ["winner"], "round_end.winner", {
       required: false,
     });
     if (winner !== "T" && winner !== "CT") {
-      throw new DemoRosterValidationError(
-        `round_end for R${eventRoundNumber} has no supported CT/T winner; no score was generated.`,
-      );
+      hasUnresolvedRoundEnd = true;
+      continue;
     }
     const winningTeam: FixedMatchTeam =
       winner === roundSides.teamASide ? "teamA" : "teamB";
@@ -1631,9 +1651,22 @@ function buildScore(
     countedRounds.set(eventRoundNumber, winningTeam);
     fixedScore[winningTeam] += 1;
   }
+  const expectedHistoricalRounds = Array.from(
+    { length: Math.max(0, selectedRound.number - 1) },
+    (_, index) => index + 1,
+  );
+  if (
+    hasUnresolvedRoundEnd ||
+    expectedHistoricalRounds.some((roundNumber) => !countedRounds.has(roundNumber))
+  ) {
+    return unavailableScore();
+  }
   return {
-    [`${selectedSides.teamASide} side`]: fixedScore.teamA,
-    [`${selectedSides.teamBSide} side`]: fixedScore.teamB,
+    score: {
+      [`${selectedSides.teamASide} side`]: fixedScore.teamA,
+      [`${selectedSides.teamBSide} side`]: fixedScore.teamB,
+    },
+    available: true,
   };
 }
 
@@ -1714,7 +1747,7 @@ export function buildDemoImportNormalizedState(
     },
   } as const;
   const header = readHeader(input.header);
-  const score = buildScore(
+  const scoreRecovery = buildScore(
     input,
     selectedRound,
     inspection.rounds,
@@ -1743,7 +1776,7 @@ export function buildDemoImportNormalizedState(
       number: selectedRound.number,
       parserRound: selectedRound.parserRound,
       boundaryTick: selectedRound.freezeEndTick,
-      score,
+      score: scoreRecovery.score,
     },
     tick: input.tick,
     time: buildNormalizedTime(selectedRound, gameTime, bomb),
@@ -1776,10 +1809,15 @@ export function buildDemoImportNormalizedState(
         "已选 tick 之后的比赛事件",
         "Human Known / Unknown 与战术语义",
         "未经过 Human QA 的地图 raster / route calibration",
+        ...(scoreRecovery.available
+          ? []
+          : ["历史 round-end winner 不完整，比分 unavailable"]),
       ],
       derivedFields: [
         "T/CT side label from selected round freeze-end side evidence and exact tick rows",
-        "score from deduplicated round_end winner events mapped through fixed match-team identities and the selected Round sides",
+        scoreRecovery.available
+          ? "score from complete, deduplicated round_end winner events mapped through fixed match-team identities and the selected Round sides"
+          : "score unavailable because every historical round-end winner was not recovered uniquely",
         "clock from round_start/game_time and the declared 115-second rule",
         "bomb status from ordered bomb_* events through the selected tick",
         "team label as T side / CT side because organization names are unavailable",

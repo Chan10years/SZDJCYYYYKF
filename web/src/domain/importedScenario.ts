@@ -100,7 +100,7 @@ function buildImportedFacts(
     {
       label: "比分",
       detail: Object.entries(state.round.score)
-        .map(([team, score]) => `${team} ${score}`)
+        .map(([team, score]) => `${team} ${score ?? "unavailable"}`)
         .join(" : "),
     },
     {

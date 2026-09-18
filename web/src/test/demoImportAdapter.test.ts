@@ -126,6 +126,64 @@ function selectionInput(
   };
 }
 
+function historicalSelectionInput(
+  roundEndRoundNumbers: readonly number[] = [1, 2, 3],
+  overrides: Partial<DemoParserSelectionInput> = {},
+): DemoParserSelectionInput {
+  const rounds = [1, 2, 3, 4].map((number) => ({
+    number,
+    startTick: 1000 + (number - 1) * 10000,
+    freezeEndTick: 1200 + (number - 1) * 10000,
+    startGameTime: 100 + (number - 1) * 150,
+    freezeEndGameTime: 103 + (number - 1) * 150,
+  }));
+  const roundSideSnapshots = rounds.map((round) => ({
+    roundNumber: round.number,
+    freezeEndTick: round.freezeEndTick,
+    players: players.map((player, slot) => ({
+      slot,
+      steamid: player.steamid,
+      name: player.name,
+      side:
+        round.number >= 3
+          ? player.team === "CT"
+            ? "T"
+            : "CT"
+          : player.team,
+    })),
+  }));
+  const roundEndEvents = roundEndRoundNumbers.map((number) => ({
+    round: number,
+    tick: 9000 + (number - 1) * 10000,
+    game_time: 240 + (number - 1) * 150,
+    winner: number % 2 === 0 ? "CT" : "T",
+  }));
+  return selectionInput({
+    roundNumber: 4,
+    tick: 35555,
+    tickRows: (selectionInput().tickRows as ParserRecord[]).map((row) => ({
+      ...row,
+      tick: 35555,
+      game_time: 553,
+      m_iTeamNum: null,
+    })),
+    roundSideSnapshots,
+    roundStartEvents: rounds.map((round) => ({
+      round: round.number,
+      tick: round.startTick,
+      game_time: round.startGameTime,
+      total_rounds_played: round.number - 1,
+    })),
+    roundFreezeEndEvents: rounds.map((round) => ({
+      tick: round.freezeEndTick,
+      game_time: round.freezeEndGameTime,
+      total_rounds_played: round.number - 1,
+    })),
+    roundEndEvents,
+    ...overrides,
+  });
+}
+
 describe("demoparser2 output adapter", () => {
   it("builds every Round range without reducing the user to marker nodes", () => {
     const inspection = buildDemoImportInspection(baseInspectionInput);
@@ -767,25 +825,43 @@ describe("demoparser2 output adapter", () => {
 
   it("maps historical round winners to fixed teams across halftime and deduplicates repeats", () => {
     const state = buildDemoImportNormalizedState(
-      selectionInput({
-        roundNumber: 19,
-        tick: 15000,
-        tickRows: (selectionInput().tickRows as ParserRecord[]).map((row) => ({
-          ...row,
-          tick: 15000,
-          game_time: 300,
-          m_iTeamNum: null,
-        })),
-        roundSideSnapshots: baseInspectionInput.roundSideSnapshots,
-        roundEndEvents: [
-          { round: 18, tick: 9000, game_time: 240, winner: "T" },
-          { round: 18, tick: 9001, game_time: 240.1, winner: "T" },
-          { round: 19, tick: 18000, game_time: 390, winner: "T" },
-        ],
-      }),
+      historicalSelectionInput([1, 1, 2, 3]),
     );
 
-    expect(state.round.score).toEqual({ "T side": 0, "CT side": 1 });
+    expect(state.round.score).toEqual({ "T side": 2, "CT side": 1 });
+  });
+
+  it("marks the score unavailable when an intermediate historical round-end is missing", () => {
+    const state = buildDemoImportNormalizedState(
+      historicalSelectionInput([1, 3]),
+    );
+
+    expect(state.round.score).toEqual({ "CT side": null, "T side": null });
+    expect(state.players).toHaveLength(10);
+    expect(state.extraction.unavailableFields).toContain(
+      "历史 round-end winner 不完整，比分 unavailable",
+    );
+  });
+
+  it("marks the score unavailable when all historical round-end events are missing", () => {
+    const state = buildDemoImportNormalizedState(
+      historicalSelectionInput([]),
+    );
+
+    expect(state.round.score).toEqual({ "CT side": null, "T side": null });
+    expect(state.round.number).toBe(4);
+    expect(state.players).toHaveLength(10);
+  });
+
+  it("keeps a complete score after deduplicating repeated round-end events", () => {
+    const state = buildDemoImportNormalizedState(
+      historicalSelectionInput([1, 1, 2, 2, 3]),
+    );
+
+    expect(state.round.score).toEqual({ "CT side": 1, "T side": 2 });
+    expect(state.extraction.unavailableFields).not.toContain(
+      "历史 round-end winner 不完整，比分 unavailable",
+    );
   });
 
   it("rejects conflicting round-end winners instead of counting an arbitrary result", () => {
@@ -810,17 +886,18 @@ describe("demoparser2 output adapter", () => {
     ).toThrow(DemoRosterValidationError);
   });
 
-  it("fails closed when a historical winner has no validated side mapping", () => {
-    expect(() =>
-      buildDemoImportNormalizedState(
-        selectionInput({
-          roundEndEvents: [
-            { round: 17, tick: 900, game_time: 98, winner: "T" },
-            { round: 18, tick: 9000, game_time: 240, winner: "CT" },
-          ],
-        }),
-      ),
-    ).toThrow(DemoRosterValidationError);
+  it("keeps the normalized state when a historical winner has no validated side mapping", () => {
+    const state = buildDemoImportNormalizedState(
+      selectionInput({
+        roundEndEvents: [
+          { round: 17, tick: 900, game_time: 98, winner: "T" },
+          { round: 18, tick: 9000, game_time: 240, winner: "CT" },
+        ],
+      }),
+    );
+
+    expect(state.round.score).toEqual({ "T side": null, "CT side": null });
+    expect(state.players).toHaveLength(10);
   });
 
   it("carries automatic and user-confirmed roster provenance into normalized state", () => {
