@@ -248,6 +248,24 @@ const SourceSchema = z
   })
   .strict();
 
+const RosterResolutionSchema = z
+  .object({
+    mode: z.enum(["automatic", "user-confirmed"]),
+    matchRosterIds: z.array(z.string().trim().min(1)).length(10),
+    unresolvedIdentityIds: z.array(z.string().trim().min(1)),
+    confirmedNonRosterIdentityIds: z.array(z.string().trim().min(1)),
+  })
+  .strict()
+  .superRefine((resolution, context) => {
+    if (new Set(resolution.matchRosterIds).size !== 10) {
+      context.addIssue({
+        code: "custom",
+        path: ["matchRosterIds"],
+        message: "normalized roster provenance must contain ten unique identities",
+      });
+    }
+  });
+
 const ExtractionSchema = z
   .object({
     verificationStatus: z.literal("draft"),
@@ -256,6 +274,8 @@ const ExtractionSchema = z
     availableFields: z.array(z.string().trim().min(1)).min(1),
     unavailableFields: z.array(z.string().trim().min(1)).min(1),
     derivedFields: z.array(z.string().trim().min(1)).min(1),
+    /** Optional for backward compatibility with existing normalized fixtures. */
+    rosterResolution: RosterResolutionSchema.optional(),
   })
   .strict();
 

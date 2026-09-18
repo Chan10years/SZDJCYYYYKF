@@ -195,9 +195,9 @@ function makeTickRows(track, tick, roundNumber, rounds) {
     const index = frame * track.slotCount + player.slot;
     const weaponIndex = track.weapon[index];
     return {
-      X: track.posX[index] ?? 0,
-      Y: track.posY[index] ?? 0,
-      Z: track.posZ[index] ?? 0,
+      X: track.posX[index] ?? null,
+      Y: track.posY[index] ?? null,
+      Z: track.posZ[index] ?? null,
       steamid: player.steamId,
       name: player.name,
       slot: player.slot,
@@ -205,8 +205,11 @@ function makeTickRows(track, tick, roundNumber, rounds) {
       // a separately validated round-side snapshot, never final header.team.
       m_iTeamNum:
         sideByParserInstance.get(`${player.steamId}@slot:${player.slot}`) ?? null,
-      health: track.health[index] ?? 0,
-      is_alive: ((track.flags[index] ?? 0) & FLAG_ALIVE) !== 0,
+      health: track.health[index] ?? null,
+      is_alive:
+        track.flags[index] === undefined || track.flags[index] === null
+          ? null
+          : (track.flags[index] & FLAG_ALIVE) !== 0,
       active_weapon_name:
         weaponIndex === undefined || weaponIndex === WEAPON_NONE
           ? null

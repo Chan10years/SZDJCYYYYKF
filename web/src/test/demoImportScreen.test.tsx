@@ -29,6 +29,7 @@ function makeData(mapName = "de_mirage") {
     active_weapon_name: "AK-47",
     last_place_name: "Mid",
     game_time: 45,
+    tick: 5555,
   }));
   const raw = {
     header: {

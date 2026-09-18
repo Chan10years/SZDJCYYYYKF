@@ -238,11 +238,10 @@ function readNumber(
   throw new Error(`${label} is unavailable in parser output`);
 }
 
-function readBoolean(
+function readOptionalBoolean(
   record: ParserRecord,
   keys: readonly string[],
-  label: string,
-): boolean {
+): boolean | null {
   for (const key of keys) {
     const value = record[key];
     if (typeof value === "boolean") {
@@ -252,7 +251,39 @@ function readBoolean(
       return value === "true";
     }
   }
-  throw new Error(`${label} is unavailable in parser output`);
+  return null;
+}
+
+function readRequiredSelectionNumber(
+  record: ParserRecord,
+  keys: readonly string[],
+  label: string,
+  options: { integer?: boolean } = {},
+): number {
+  const value = readNumber(record, keys, label, {
+    required: false,
+    integer: options.integer,
+  });
+  if (value === null) {
+    throw new DemoRosterValidationError(
+      `${label} is unavailable in the requested exact-tick row; the normalized state was rejected instead of treating missing data as zero.`,
+    );
+  }
+  return value;
+}
+
+function readRequiredSelectionBoolean(
+  record: ParserRecord,
+  keys: readonly string[],
+  label: string,
+): boolean {
+  const value = readOptionalBoolean(record, keys);
+  if (value === null) {
+    throw new DemoRosterValidationError(
+      `${label} is unavailable in the requested exact-tick row; the normalized state was rejected instead of treating missing data as false.`,
+    );
+  }
+  return value;
 }
 
 function normalizeMapName(record: ParserRecord): string {
@@ -1055,6 +1086,7 @@ function recoverRosterEvidence(
     .sort((a, b) => a.slot - b.slot);
 
   validateMatchRoster(matchRoster, rosterSnapshotPlayers(matchingSnapshots[0]));
+  buildFixedMatchTeamMapping(matchRoster, matchingSnapshots);
   const rosterResolution: DemoImportRosterResolution = {
     mode: resolutionMode,
     matchRosterIds: matchRoster.map((player) => player.id),
@@ -1101,6 +1133,103 @@ function validateMatchRoster(
       `浏览器本地已恢复 match roster，但校验失败：需要 10 个唯一玩家、5 CT、5 T；实际为 ${roster.length} 个 roster 玩家、${ctCount} CT、${tCount} T。`,
     );
   }
+}
+
+type FixedMatchTeam = "teamA" | "teamB";
+
+type RoundTeamSides = {
+  teamASide: "CT" | "T";
+  teamBSide: "CT" | "T";
+};
+
+type FixedMatchTeamMapping = {
+  sidesByRound: ReadonlyMap<number, RoundTeamSides>;
+};
+
+/**
+ * Establishes two stable, neutral match-team identities from the earliest
+ * validated round-side snapshot. The labels are intentionally not team
+ * names: they only let score events survive the CT/T side switch.
+ */
+function buildFixedMatchTeamMapping(
+  roster: readonly DemoImportMatchRosterPlayer[],
+  snapshots: readonly DemoImportRoundSideSnapshot[],
+): FixedMatchTeamMapping {
+  const rosterIds = new Set(roster.map((player) => player.id));
+  const orderedSnapshots = [...snapshots].sort(
+    (a, b) => a.roundNumber - b.roundNumber,
+  );
+  const snapshotPlayers = (snapshot: DemoImportRoundSideSnapshot) =>
+    snapshot.players.filter((player) => rosterIds.has(player.id));
+  const reference = orderedSnapshots.find((snapshot) => {
+    const players = snapshotPlayers(snapshot);
+    return (
+      players.length === roster.length &&
+      new Set(players.map((player) => player.id)).size === roster.length &&
+      players.filter((player) => player.side === "CT").length === 5 &&
+      players.filter((player) => player.side === "T").length === 5
+    );
+  });
+  if (!reference) {
+    throw new DemoRosterValidationError(
+      "无法从已验证的 round-specific CT/T evidence 建立固定比赛双方身份；未生成比分。",
+    );
+  }
+
+  const teamAIds = new Set(
+    snapshotPlayers(reference)
+      .filter((player) => player.side === "CT")
+      .map((player) => player.id),
+  );
+  if (teamAIds.size !== 5) {
+    throw new DemoRosterValidationError(
+      "固定比赛双方身份缺少完整的五人组证据；未生成比分。",
+    );
+  }
+  const teamById = new Map<string, FixedMatchTeam>();
+  for (const player of roster) {
+    teamById.set(player.id, teamAIds.has(player.id) ? "teamA" : "teamB");
+  }
+
+  const sidesByRound = new Map<number, RoundTeamSides>();
+  for (const snapshot of orderedSnapshots) {
+    const playersById = new Map(snapshotPlayers(snapshot).map((player) => [player.id, player]));
+    if (playersById.size !== roster.length) {
+      throw new DemoRosterValidationError(
+        `R${snapshot.roundNumber} 的 round-specific evidence 无法覆盖固定比赛双方的 10 个唯一身份；未生成比分。`,
+      );
+    }
+    const teamASides = new Set<"CT" | "T">();
+    const teamBSides = new Set<"CT" | "T">();
+    for (const player of roster) {
+      const snapshotPlayer = playersById.get(player.id);
+      if (!snapshotPlayer) {
+        throw new DemoRosterValidationError(
+          `R${snapshot.roundNumber} 缺少固定比赛双方身份 ${player.id} 的 side evidence；未生成比分。`,
+        );
+      }
+      if (teamById.get(player.id) === "teamA") {
+        teamASides.add(snapshotPlayer.side);
+      } else {
+        teamBSides.add(snapshotPlayer.side);
+      }
+    }
+    if (teamASides.size !== 1 || teamBSides.size !== 1) {
+      throw new DemoRosterValidationError(
+        `R${snapshot.roundNumber} 的 CT/T evidence 混合了固定比赛双方五人组；未生成比分。`,
+      );
+    }
+    const teamASide = [...teamASides][0];
+    const teamBSide = [...teamBSides][0];
+    if (teamASide === teamBSide) {
+      throw new DemoRosterValidationError(
+        `R${snapshot.roundNumber} 的固定比赛双方无法映射到相反的 CT/T sides；未生成比分。`,
+      );
+    }
+    sidesByRound.set(snapshot.roundNumber, { teamASide, teamBSide });
+  }
+
+  return { sidesByRound };
 }
 
 export function buildDemoImportInspection(
@@ -1285,9 +1414,19 @@ function normalizeTickRows(
       required: false,
       integer: true,
     });
-    if (rowTick !== null && rowTick > selectedTick) {
-      throw new Error(
+    if (rowTick === null) {
+      throw new DemoRosterValidationError(
+        `parseTicks[${index}] is missing the exact selected tick ${selectedTick}; the row was rejected.`,
+      );
+    }
+    if (rowTick > selectedTick) {
+      throw new DemoRosterValidationError(
         `parseTicks[${index}] contains a future tick ${rowTick} after selected tick ${selectedTick}`,
+      );
+    }
+    if (rowTick < selectedTick) {
+      throw new DemoRosterValidationError(
+        `parseTicks[${index}] contains an earlier/stale tick ${rowTick} before selected tick ${selectedTick}`,
       );
     }
     const name = readString(record, ["name", "user_name", "player_name"], `parseTicks[${index}].name`);
@@ -1309,22 +1448,35 @@ function normalizeTickRows(
         `exact tick lacks selected-round CT/T side evidence for recovered match roster parser instance ${id} at slot ${slot};原始文件未上传。`,
       );
     }
+    const health = readRequiredSelectionNumber(
+      record,
+      ["health", "m_iHealth"],
+      `parseTicks[${index}].health`,
+      { integer: true },
+    );
+    const alive = readRequiredSelectionBoolean(
+      record,
+      ["is_alive", "isAlive"],
+      `parseTicks[${index}].is_alive`,
+    );
     return {
       id,
       name,
       side,
-      health: readNumber(record, ["health", "m_iHealth"], `parseTicks[${index}].health`, {
-        integer: true,
-      }),
-      alive: readBoolean(record, ["is_alive", "isAlive"], `parseTicks[${index}].is_alive`),
+      health,
+      alive,
       worldPosition: {
-        x: readNumber(record, ["X", "x"], `parseTicks[${index}].X`),
-        y: readNumber(record, ["Y", "y"], `parseTicks[${index}].Y`),
-        z: readNumber(record, ["Z", "z"], `parseTicks[${index}].Z`),
+        x: readRequiredSelectionNumber(record, ["X", "x"], `parseTicks[${index}].X`),
+        y: readRequiredSelectionNumber(record, ["Y", "y"], `parseTicks[${index}].Y`),
+        z: readRequiredSelectionNumber(record, ["Z", "z"], `parseTicks[${index}].Z`),
       },
       weapon: readOptionalString(record, ["active_weapon_name", "weapon"]),
       place: readOptionalString(record, ["last_place_name", "place"]),
-      gameTime: readNumber(record, ["game_time", "gameTime"], `parseTicks[${index}].game_time`),
+      gameTime: readRequiredSelectionNumber(
+        record,
+        ["game_time", "gameTime"],
+        `parseTicks[${index}].game_time`,
+      ),
     };
     });
   const ids = new Set(normalized.map((player) => player.id));
@@ -1429,8 +1581,21 @@ function buildScore(
   input: DemoParserSelectionInput,
   selectedRound: DemoImportRound,
   rounds: readonly DemoImportRound[],
+  roster: readonly DemoImportMatchRosterPlayer[],
+  roundSideSnapshots: readonly DemoImportRoundSideSnapshot[],
 ): Record<string, number> {
-  const score: Record<string, number> = { "T side": 0, "CT side": 0 };
+  const mapping = buildFixedMatchTeamMapping(roster, roundSideSnapshots);
+  const selectedSides = mapping.sidesByRound.get(selectedRound.number);
+  if (!selectedSides) {
+    throw new DemoRosterValidationError(
+      `selected Round ${selectedRound.number} lacks a fixed match-team side mapping; no score was generated.`,
+    );
+  }
+  const fixedScore: Record<FixedMatchTeam, number> = {
+    teamA: 0,
+    teamB: 0,
+  };
+  const countedRounds = new Map<number, FixedMatchTeam>();
   for (const record of asRecords(input.roundEndEvents, "round_end")) {
     const event = normalizeEvent(record, "round_end");
     const temporalRound = findRoundForTick(rounds, event.tick);
@@ -1438,14 +1603,38 @@ function buildScore(
     if (eventRoundNumber === null || eventRoundNumber >= selectedRound.number) {
       continue;
     }
+    const roundSides = mapping.sidesByRound.get(eventRoundNumber);
+    if (!roundSides) {
+      throw new DemoRosterValidationError(
+        `round_end for R${eventRoundNumber} has no validated round-specific CT/T mapping; no score was generated.`,
+      );
+    }
     const winner = readString(record, ["winner"], "round_end.winner", {
       required: false,
     });
-    if (winner === "T" || winner === "CT") {
-      score[`${winner} side`] += 1;
+    if (winner !== "T" && winner !== "CT") {
+      throw new DemoRosterValidationError(
+        `round_end for R${eventRoundNumber} has no supported CT/T winner; no score was generated.`,
+      );
     }
+    const winningTeam: FixedMatchTeam =
+      winner === roundSides.teamASide ? "teamA" : "teamB";
+    const previousWinner = countedRounds.get(eventRoundNumber);
+    if (previousWinner) {
+      if (previousWinner !== winningTeam) {
+        throw new DemoRosterValidationError(
+          `round_end events conflict for R${eventRoundNumber}; no score was generated.`,
+        );
+      }
+      continue;
+    }
+    countedRounds.set(eventRoundNumber, winningTeam);
+    fixedScore[winningTeam] += 1;
   }
-  return score;
+  return {
+    [`${selectedSides.teamASide} side`]: fixedScore.teamA,
+    [`${selectedSides.teamBSide} side`]: fixedScore.teamB,
+  };
 }
 
 function buildNormalizedTime(
@@ -1525,7 +1714,13 @@ export function buildDemoImportNormalizedState(
     },
   } as const;
   const header = readHeader(input.header);
-  const score = buildScore(input, selectedRound, inspection.rounds);
+  const score = buildScore(
+    input,
+    selectedRound,
+    inspection.rounds,
+    inspection.matchRoster,
+    inspection.roundSideSnapshots,
+  );
   return parseNormalizedMatchState({
     schemaVersion: 1,
     source: {
@@ -1537,7 +1732,7 @@ export function buildDemoImportNormalizedState(
       parserVersion: DEMO_IMPORT_PARSER_VERSION,
       demoVersion: header.demoVersion,
       patchVersion: header.patchVersion,
-      selectionEvidence: `header + Round ${selectedRound.number} + exact tick ${input.tick}; player rows and bomb events are limited to the selected tick or earlier`,
+      selectionEvidence: `header + Round ${selectedRound.number} + exact tick ${input.tick}; player rows belong to the selected tick and bomb events are limited to the selected tick or earlier`,
     },
     map: {
       name: inspection.map.name,
@@ -1584,11 +1779,12 @@ export function buildDemoImportNormalizedState(
       ],
       derivedFields: [
         "T/CT side label from selected round freeze-end side evidence and exact tick rows",
-        "score from round_end winner events before the selected Round",
+        "score from deduplicated round_end winner events mapped through fixed match-team identities and the selected Round sides",
         "clock from round_start/game_time and the declared 115-second rule",
         "bomb status from ordered bomb_* events through the selected tick",
         "team label as T side / CT side because organization names are unavailable",
       ],
+      rosterResolution: inspection.rosterResolution,
     },
   });
 }

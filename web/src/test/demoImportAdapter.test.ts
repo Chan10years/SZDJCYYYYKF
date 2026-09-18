@@ -80,7 +80,6 @@ const baseInspectionInput: DemoParserInspectionInput = {
     { tick: 10128, game_time: 252, total_rounds_played: 18 },
   ],
   roundEndEvents: [
-    { round: 17, tick: 900, game_time: 98, winner: "T", total_rounds_played: 16 },
     { round: 18, tick: 9000, game_time: 240, winner: "CT", total_rounds_played: 17 },
     { round: 19, tick: 18000, game_time: 390, winner: "T", total_rounds_played: 18 },
   ],
@@ -231,6 +230,69 @@ describe("demoparser2 output adapter", () => {
         selectionInput({ tick: 5555, tickRows: futureRows }),
       ),
     ).toThrow(/future|selected tick/i);
+  });
+
+  it("rejects player rows sampled before the selected tick", () => {
+    const earlierRows = (selectionInput().tickRows as ParserRecord[]).map((row) => ({
+      ...row,
+      tick: 100,
+    }));
+
+    expect(() =>
+      buildDemoImportNormalizedState(
+        selectionInput({ tick: 5555, tickRows: earlierRows }),
+      ),
+    ).toThrow(DemoRosterValidationError);
+  });
+
+  it("rejects a mixed exact-tick player row set", () => {
+    const mixedRows = (selectionInput().tickRows as ParserRecord[]).map(
+      (row, index) => ({
+        ...row,
+        tick: index === 0 ? 5554 : 5555,
+      }),
+    );
+
+    expect(() =>
+      buildDemoImportNormalizedState(
+        selectionInput({ tick: 5555, tickRows: mixedRows }),
+      ),
+    ).toThrow(DemoRosterValidationError);
+  });
+
+  it("fails closed when a required exact-tick field is missing", () => {
+    const rowsWithoutPosition = (selectionInput().tickRows as ParserRecord[]).map(
+      (row, index) => {
+        if (index !== 0) return row;
+        const withoutX = { ...row };
+        delete withoutX.X;
+        return withoutX;
+      },
+    );
+
+    expect(() =>
+      buildDemoImportNormalizedState(
+        selectionInput({ tickRows: rowsWithoutPosition }),
+      ),
+    ).toThrow(DemoRosterValidationError);
+  });
+
+  it("preserves unavailable optional fields as null without weakening required state", () => {
+    const rowsWithoutOptionalFields = (selectionInput().tickRows as ParserRecord[]).map(
+      (row) => {
+        const withoutOptionalFields = { ...row };
+        delete withoutOptionalFields.active_weapon_name;
+        delete withoutOptionalFields.last_place_name;
+        return withoutOptionalFields;
+      },
+    );
+
+    const state = buildDemoImportNormalizedState(
+      selectionInput({ tickRows: rowsWithoutOptionalFields }),
+    );
+
+    expect(state.players.every((player) => player.weapon === null)).toBe(true);
+    expect(state.players.every((player) => player.place === null)).toBe(true);
   });
 
   it("keeps legal parser events when round fields are absent", () => {
@@ -680,6 +742,104 @@ describe("demoparser2 output adapter", () => {
         ],
       } as DemoParserInspectionInput),
     ).toThrow(DemoRosterValidationError);
+  });
+
+  it("fails closed when halftime keeps a 5/5 shape but mixes the fixed teams", () => {
+    const secondSnapshot = baseInspectionInput.roundSideSnapshots[1] as ParserRecord;
+    const secondPlayers = (secondSnapshot.players as ParserRecord[]).map(
+      (player, index) => {
+        if (index === 0) return { ...player, side: "T" };
+        if (index === 5) return { ...player, side: "CT" };
+        return player;
+      },
+    );
+
+    expect(() =>
+      buildDemoImportInspection({
+        ...baseInspectionInput,
+        roundSideSnapshots: [
+          baseInspectionInput.roundSideSnapshots[0],
+          { ...secondSnapshot, players: secondPlayers },
+        ],
+      } as DemoParserInspectionInput),
+    ).toThrow(DemoRosterValidationError);
+  });
+
+  it("maps historical round winners to fixed teams across halftime and deduplicates repeats", () => {
+    const state = buildDemoImportNormalizedState(
+      selectionInput({
+        roundNumber: 19,
+        tick: 15000,
+        tickRows: (selectionInput().tickRows as ParserRecord[]).map((row) => ({
+          ...row,
+          tick: 15000,
+          game_time: 300,
+          m_iTeamNum: null,
+        })),
+        roundSideSnapshots: baseInspectionInput.roundSideSnapshots,
+        roundEndEvents: [
+          { round: 18, tick: 9000, game_time: 240, winner: "T" },
+          { round: 18, tick: 9001, game_time: 240.1, winner: "T" },
+          { round: 19, tick: 18000, game_time: 390, winner: "T" },
+        ],
+      }),
+    );
+
+    expect(state.round.score).toEqual({ "T side": 0, "CT side": 1 });
+  });
+
+  it("rejects conflicting round-end winners instead of counting an arbitrary result", () => {
+    expect(() =>
+      buildDemoImportNormalizedState(
+        selectionInput({
+          roundNumber: 19,
+          tick: 15000,
+          tickRows: (selectionInput().tickRows as ParserRecord[]).map((row) => ({
+            ...row,
+            tick: 15000,
+            game_time: 300,
+            m_iTeamNum: null,
+          })),
+          roundSideSnapshots: baseInspectionInput.roundSideSnapshots,
+          roundEndEvents: [
+            { round: 18, tick: 9000, game_time: 240, winner: "T" },
+            { round: 18, tick: 9001, game_time: 240.1, winner: "CT" },
+          ],
+        }),
+      ),
+    ).toThrow(DemoRosterValidationError);
+  });
+
+  it("fails closed when a historical winner has no validated side mapping", () => {
+    expect(() =>
+      buildDemoImportNormalizedState(
+        selectionInput({
+          roundEndEvents: [
+            { round: 17, tick: 900, game_time: 98, winner: "T" },
+            { round: 18, tick: 9000, game_time: 240, winner: "CT" },
+          ],
+        }),
+      ),
+    ).toThrow(DemoRosterValidationError);
+  });
+
+  it("carries automatic and user-confirmed roster provenance into normalized state", () => {
+    const automatic = buildDemoImportNormalizedState(selectionInput());
+    expect(automatic.extraction.rosterResolution).toMatchObject({
+      mode: "automatic",
+      matchRosterIds: players.map((player) => player.steamid),
+      confirmedNonRosterIdentityIds: [],
+    });
+
+    const confirmed = buildDemoImportNormalizedState(selectionInput(), {
+      rosterConfirmation: {
+        matchRosterIds: players.map((player) => player.steamid),
+      },
+    });
+    expect(confirmed.extraction.rosterResolution).toMatchObject({
+      mode: "user-confirmed",
+      matchRosterIds: players.map((player) => player.steamid),
+    });
   });
 
   it("requires explicit confirmation when parser identities include unresolved participants", () => {
