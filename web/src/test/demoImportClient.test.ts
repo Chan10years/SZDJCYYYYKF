@@ -11,8 +11,12 @@ import {
 
 const SHA = "A".repeat(64);
 
-function makeRaw(selectionTickStep?: number, inactiveSlots: readonly number[] = []) {
-  const players = Array.from({ length: 10 }, (_, index) => ({
+function makeRaw(
+  selectionTickStep?: number,
+  inactiveSlots: readonly number[] = [],
+  extraPlayerCount = 0,
+) {
+  const basePlayers = Array.from({ length: 10 }, (_, index) => ({
     slot: index,
     steamid: String(index + 1),
     name: `player-${index + 1}`,
@@ -26,6 +30,21 @@ function makeRaw(selectionTickStep?: number, inactiveSlots: readonly number[] = 
     last_place_name: "Mid",
     game_time: 45,
   }));
+  const extraPlayers = Array.from({ length: extraPlayerCount }, (_, index) => ({
+    slot: basePlayers.length + index,
+    steamid: String(11 + index),
+    name: `extra-player-${index + 1}`,
+    team: index % 2 === 0 ? 2 : 3,
+    X: 100 + index,
+    Y: 101 + index,
+    Z: 0,
+    health: 100,
+    is_alive: true,
+    active_weapon_name: "AK-47",
+    last_place_name: "Mid",
+    game_time: 45,
+  }));
+  const players = [...basePlayers, ...extraPlayers];
   return {
     header: {
       map_name: "de_mirage",
@@ -104,6 +123,7 @@ class FakeWorker {
     private readonly includeActualTick = true,
     private readonly failureCode = "unsupported",
     private readonly inactiveSlots: readonly number[] = [],
+    private readonly extraPlayerCount = 0,
   ) {}
 
   addEventListener(type: string, listener: (event: MessageEvent) => void) {
@@ -130,7 +150,11 @@ class FakeWorker {
           });
           return;
         }
-        const raw = makeRaw(this.selectionTickStep, this.inactiveSlots);
+        const raw = makeRaw(
+          this.selectionTickStep,
+          this.inactiveSlots,
+          this.extraPlayerCount,
+        );
         this.emit({
           type: "inspection",
           fileName: "new-match.dem",
@@ -140,7 +164,11 @@ class FakeWorker {
           raw,
         });
       } else if (message.type === "select") {
-        const raw = makeRaw(this.selectionTickStep, this.inactiveSlots);
+        const raw = makeRaw(
+          this.selectionTickStep,
+          this.inactiveSlots,
+          this.extraPlayerCount,
+        );
         const actualTick = this.selectionActualTick ?? message.tick;
         this.emit({
           type: "selection",
@@ -241,6 +269,48 @@ describe("DemoImportClient", () => {
     expect(selected.normalizedMatchState.players.map((player) => player.id)).toEqual(
       rosterIds,
     );
+  });
+
+  it("keeps the parsed Worker alive across ambiguous roster confirmation and retries", async () => {
+    const worker = new FakeWorker(
+      false,
+      undefined,
+      undefined,
+      true,
+      "unsupported",
+      [10, 11],
+      2,
+    );
+    const client = new DemoImportClient({ workerFactory: () => worker });
+    const file = new File([new Uint8Array(15)], "ambiguous-roster.dem");
+    const rosterIds = Array.from({ length: 10 }, (_, index) => String(index + 1));
+
+    await expect(client.load(file)).rejects.toMatchObject({
+      kind: "roster-recovery",
+      canConfirm: true,
+    });
+    expect(worker.terminated).toBe(false);
+
+    await expect(
+      client.confirmRoster({ matchRosterIds: [...rosterIds.slice(0, 9), "999"] }),
+    ).rejects.toMatchObject({ kind: "roster-validation" });
+    expect(worker.terminated).toBe(false);
+
+    const confirmed = await client.confirmRoster({ matchRosterIds: rosterIds });
+    expect(confirmed.inspection.rosterResolution.mode).toBe("user-confirmed");
+    expect(confirmed.inspection.playerIdentities).toHaveLength(12);
+    expect(confirmed.inspection.rosterResolution.confirmedNonRosterIdentityIds).toEqual([
+      "11",
+      "12",
+    ]);
+    expect(worker.terminated).toBe(false);
+
+    const selected = await client.select(1, 5555);
+    expect(selected.normalizedMatchState.players).toHaveLength(10);
+    expect(selected.normalizedMatchState.players.map((player) => player.id)).toEqual(
+      rosterIds,
+    );
+    expect(worker.terminated).toBe(false);
   });
 
   it("rejects a non-aligned tick before the worker can sample it", async () => {

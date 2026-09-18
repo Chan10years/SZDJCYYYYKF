@@ -35,17 +35,40 @@ export class DemoParseError extends DemoImportFailure {
 export type DemoRosterRecoveryDetails = {
   unresolvedIdentityIds?: readonly string[];
   candidateIdentityIds?: readonly string[];
+  canConfirm?: boolean;
+  identityOptions?: readonly DemoRosterIdentityOption[];
+};
+
+/**
+ * Structured, per-import facts shown when parser evidence cannot establish a
+ * canonical ten-player roster without user input. These are observations, not
+ * role labels and not a second source of parser truth.
+ */
+export type DemoRosterIdentityOption = {
+  id: string;
+  name: string;
+  slot: number;
+  directEvidenceReferenceCount: number;
+  directEvidenceKinds: readonly string[];
+  roundSideEvidenceRoundCount: number;
 };
 
 export class DemoRosterRecoveryError extends DemoImportFailure {
   readonly unresolvedIdentityIds: string[];
   readonly candidateIdentityIds: string[];
+  readonly canConfirm: boolean;
+  readonly identityOptions: DemoRosterIdentityOption[];
 
   constructor(message: string, details: DemoRosterRecoveryDetails = {}) {
     super("roster-recovery", message);
     this.name = "DemoRosterRecoveryError";
     this.unresolvedIdentityIds = [...(details.unresolvedIdentityIds ?? [])];
     this.candidateIdentityIds = [...(details.candidateIdentityIds ?? [])];
+    this.canConfirm = details.canConfirm ?? false;
+    this.identityOptions = (details.identityOptions ?? []).map((option) => ({
+      ...option,
+      directEvidenceKinds: [...option.directEvidenceKinds],
+    }));
   }
 }
 

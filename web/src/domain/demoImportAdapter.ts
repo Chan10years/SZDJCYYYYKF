@@ -21,6 +21,7 @@ import {
   DemoMapMetadataError,
   DemoRosterRecoveryError,
   DemoRosterValidationError,
+  type DemoRosterIdentityOption,
 } from "./demoImportErrors";
 import {
   parseNormalizedMatchState,
@@ -777,7 +778,7 @@ function recoverRosterEvidence(
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new DemoRosterRecoveryError(
-      `浏览器本地已解析 Demo，但 parser participant identities 无法作为可靠身份记录使用；原始文件未上传。（${detail}）`,
+      `浏览器本地已解析 Demo，但 parser participant identities 无法作为可靠身份记录使用。（${detail}）`,
     );
   }
 
@@ -802,7 +803,7 @@ function recoverRosterEvidence(
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new DemoRosterRecoveryError(
-      `浏览器本地已解析 Demo，但 parser competitive-participant evidence 无法与 player identity 可靠对应；原始文件未上传。（${detail}）`,
+      `浏览器本地已解析 Demo，但 parser competitive-participant evidence 无法与 player identity 可靠对应。（${detail}）`,
       { unresolvedIdentityIds: playerIdentities.map((identity) => identity.id) },
     );
   }
@@ -892,12 +893,32 @@ function recoverRosterEvidence(
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new DemoRosterRecoveryError(
-      `浏览器本地已解析 Demo，但回合阵营证据无法与 player identity 可靠对应；原始文件未上传。（${detail}）`,
+      `浏览器本地已解析 Demo，但回合阵营证据无法与 player identity 可靠对应。（${detail}）`,
     );
   }
 
   const evidenceById = new Map(
     competitiveParticipationEvidence.map((evidence) => [evidence.id, evidence]),
+  );
+  const identityOptions: DemoRosterIdentityOption[] = playerIdentities.map(
+    (identity) => {
+      const evidence = evidenceById.get(identity.id);
+      const roundSideEvidenceRoundCount = roundSideSnapshots.filter((snapshot) =>
+        snapshot.players.some(
+          (player) =>
+            player.id === identity.id && player.slot === identity.slot,
+        ),
+      ).length;
+      return {
+        id: identity.id,
+        name: identity.name,
+        slot: identity.slot,
+        directEvidenceReferenceCount:
+          evidence?.competitiveEventReferenceCount ?? 0,
+        directEvidenceKinds: [...(evidence?.competitiveEventKinds ?? [])],
+        roundSideEvidenceRoundCount,
+      };
+    },
   );
   let confirmedRosterIds: readonly string[] | undefined;
   if (options.rosterConfirmation) {
@@ -907,7 +928,7 @@ function recoverRosterEvidence(
       ).matchRosterIds;
     } catch {
       throw new DemoRosterValidationError(
-        "用户确认的 match roster 必须包含 10 个唯一玩家身份；原始文件未上传。",
+        "用户确认的 match roster 必须包含 10 个唯一玩家身份。",
       );
     }
   }
@@ -923,7 +944,7 @@ function recoverRosterEvidence(
       [...confirmedIdSet].some((id) => !identityById.has(id))
     ) {
       throw new DemoRosterValidationError(
-        "用户确认的 match roster 必须包含 10 个来自 parser identity 的唯一玩家；原始文件未上传。",
+        "用户确认的 match roster 必须包含 10 个来自 parser identity 的唯一玩家。",
       );
     }
     candidateIds = confirmedIdSet;
@@ -935,13 +956,14 @@ function recoverRosterEvidence(
   } else {
     const competitiveIdentities = playerIdentities.filter(
       (identity) =>
-        (evidenceById.get(identity.id)?.competitiveEventKinds.length ?? 0) > 0,
+        (evidenceById.get(identity.id)?.competitiveEventReferenceCount ?? 0) >
+        0,
     );
     candidateIds = new Set(competitiveIdentities.map((identity) => identity.id));
     unresolvedIdentityIds = playerIdentities
       .filter((identity) => !candidateIds.has(identity.id))
       .map((identity) => identity.id);
-    if (candidateIds.size !== 10) {
+    if (candidateIds.size !== 10 || unresolvedIdentityIds.length > 0) {
       const candidateNames = competitiveIdentities
         .map((identity) => `${identity.name} [${identity.id}]`)
         .join("、");
@@ -950,10 +972,12 @@ function recoverRosterEvidence(
         .map((identity) => `${identity.name} [${identity.id}]`)
         .join("、");
       throw new DemoRosterRecoveryError(
-        `浏览器本地已解析 Demo，但 parser 当前能确认 ${candidateIds.size} 个身份带有可追溯的 competitive-participant event references，无法在不猜测的情况下恢复 10 人 match roster；候选：${candidateNames || "无"}；unresolved：${unresolvedNames || "无"}。原始文件未上传。`,
+        `浏览器本地已解析 Demo，但 parser 证据无法无歧义地建立 10 人 match roster；直接 competitive evidence 候选 ${candidateIds.size} 人，未解析 identity ${unresolvedIdentityIds.length} 人。候选：${candidateNames || "无"}；unresolved：${unresolvedNames || "无"}。`,
         {
           unresolvedIdentityIds,
           candidateIdentityIds: [...candidateIds],
+          canConfirm: playerIdentities.length >= 10,
+          identityOptions,
         },
       );
     }
@@ -990,7 +1014,7 @@ function recoverRosterEvidence(
       })
       .join("、");
     throw new DemoRosterValidationError(
-      `浏览器本地已恢复 match roster，但部分回合缺少完整的 round-specific 5 CT / 5 T evidence：${incompleteRounds}。原始文件未上传。`,
+      `浏览器本地已恢复 match roster，但部分回合缺少完整的 round-specific 5 CT / 5 T evidence：${incompleteRounds}。`,
     );
   }
   if (matchingSnapshots.length === 0) {
@@ -1003,7 +1027,7 @@ function recoverRosterEvidence(
       })
       .join("、");
     const message =
-      `浏览器本地已解析 Demo，但恢复出的 match roster 没有任何回合能提供完整的 5 CT / 5 T round-specific evidence。观测到：${shapes}。原始文件未上传。`;
+      `浏览器本地已解析 Demo，但恢复出的 match roster 没有任何回合能提供完整的 5 CT / 5 T round-specific evidence。观测到：${shapes}。`;
     if (resolutionMode === "user-confirmed") {
       throw new DemoRosterValidationError(message);
     }
@@ -1018,7 +1042,7 @@ function recoverRosterEvidence(
       const identity = identityById.get(id);
       if (!identity) {
         throw new DemoRosterRecoveryError(
-          `浏览器本地已解析 Demo，但 match roster 中的 ${id} 无法回溯到稳定 parser identity；原始文件未上传。`,
+          `浏览器本地已解析 Demo，但 match roster 中的 ${id} 无法回溯到稳定 parser identity。`,
           { unresolvedIdentityIds, candidateIdentityIds: [...candidateIds] },
         );
       }
@@ -1074,7 +1098,7 @@ function validateMatchRoster(
     tCount !== 5
   ) {
     throw new DemoRosterValidationError(
-      `浏览器本地已恢复 match roster，但校验失败：需要 10 个唯一玩家、5 CT、5 T；实际为 ${roster.length} 个 roster 玩家、${ctCount} CT、${tCount} T。原始文件未上传。`,
+      `浏览器本地已恢复 match roster，但校验失败：需要 10 个唯一玩家、5 CT、5 T；实际为 ${roster.length} 个 roster 玩家、${ctCount} CT、${tCount} T。`,
     );
   }
 }

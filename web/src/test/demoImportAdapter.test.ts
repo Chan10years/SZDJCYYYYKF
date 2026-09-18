@@ -488,26 +488,33 @@ describe("demoparser2 output adapter", () => {
     );
 
     expect(() =>
-      buildDemoImportInspection({
-        ...baseInspectionInput,
-        playerIdentities: [
-          ...baseInspectionInput.playerIdentities,
-          extraIdentity,
-        ],
-        competitiveParticipationEvidence: [
-          ...baseInspectionInput.competitiveParticipationEvidence,
-          {
-            slot: extraIdentity.slot,
-            steamid: extraIdentity.steamid,
-            competitiveEventReferenceCount: 0,
-            competitiveEventKinds: [],
+      buildDemoImportInspection(
+        {
+          ...baseInspectionInput,
+          playerIdentities: [
+            ...baseInspectionInput.playerIdentities,
+            extraIdentity,
+          ],
+          competitiveParticipationEvidence: [
+            ...baseInspectionInput.competitiveParticipationEvidence,
+            {
+              slot: extraIdentity.slot,
+              steamid: extraIdentity.steamid,
+              competitiveEventReferenceCount: 0,
+              competitiveEventKinds: [],
+            },
+          ],
+          roundSideSnapshots: [
+            firstSnapshot,
+            { ...firstSnapshot, roundNumber: 19, players: secondPlayers },
+          ],
+        } as DemoParserInspectionInput,
+        {
+          rosterConfirmation: {
+            matchRosterIds: players.map((player) => player.steamid),
           },
-        ],
-        roundSideSnapshots: [
-          firstSnapshot,
-          { ...firstSnapshot, roundNumber: 19, players: secondPlayers },
-        ],
-      } as DemoParserInspectionInput),
+        },
+      ),
     ).toThrow(/complete|完整/);
   });
 
@@ -675,7 +682,7 @@ describe("demoparser2 output adapter", () => {
     ).toThrow(DemoRosterValidationError);
   });
 
-  it("recovers ten competitive players when parser identities include non-competitive participants", () => {
+  it("requires explicit confirmation when parser identities include unresolved participants", () => {
     const extras = [
       {
         slot: 10,
@@ -734,24 +741,99 @@ describe("demoparser2 output adapter", () => {
       competitiveParticipationEvidence: readonly unknown[];
     };
 
-    const inspection = buildDemoImportInspection(input);
+    try {
+      buildDemoImportInspection(input);
+      throw new Error("expected explicit roster confirmation");
+    } catch (error) {
+      expect(error).toBeInstanceOf(DemoRosterRecoveryError);
+      expect(error).toMatchObject({
+        canConfirm: true,
+        candidateIdentityIds: players.map((player) => player.steamid),
+        unresolvedIdentityIds: ["3010", "3011"],
+      });
+      expect((error as DemoRosterRecoveryError).identityOptions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: players[0].steamid,
+            name: players[0].name,
+            slot: 0,
+            directEvidenceKinds: ["shots"],
+          }),
+          expect.objectContaining({
+            id: "3010",
+            name: "Spectator",
+            slot: 10,
+            directEvidenceKinds: [],
+          }),
+        ]),
+      );
+    }
+  });
 
-    expect(inspection.matchRoster.map((player) => player.id)).toEqual(
-      players.map((player) => player.steamid),
-    );
-    expect(inspection.playerIdentities).toHaveLength(12);
-    expect(
-      inspection.playerIdentities
-        .filter((identity) => identity.id === "3010" || identity.id === "3011")
-        .map((identity) => identity.finalSide),
-    ).toEqual([null, null]);
-    expect(
-      (inspection as unknown as { rosterResolution: { unresolvedIdentityIds: string[] } })
-        .rosterResolution.unresolvedIdentityIds,
-    ).toEqual(["3010", "3011"]);
-    expect(inspection.warnings).toEqual(
-      expect.arrayContaining([expect.stringContaining("Spectator、Observer")]),
-    );
+  it("requires confirmation when a direct-looking extra competes with a quiet real identity", () => {
+    const extra = {
+      slot: 10,
+      steamid: "3012",
+      name: "Extra Direct Identity",
+      finalSide: "T" as const,
+      side: "T" as const,
+    };
+    const input = {
+      ...baseInspectionInput,
+      playerIdentities: [
+        ...baseInspectionInput.playerIdentities,
+        {
+          slot: extra.slot,
+          steamid: extra.steamid,
+          name: extra.name,
+          finalSide: extra.finalSide,
+        },
+      ],
+      competitiveParticipationEvidence: [
+        ...(baseInspectionInput.competitiveParticipationEvidence as ParserRecord[]).map(
+          (evidence, index) =>
+            index === 0
+              ? {
+                  ...evidence,
+                  competitiveEventReferenceCount: 0,
+                  competitiveEventKinds: [],
+                }
+              : evidence,
+        ),
+        {
+          slot: extra.slot,
+          steamid: extra.steamid,
+          competitiveEventReferenceCount: 1,
+          competitiveEventKinds: ["shots"],
+        },
+      ],
+      roundSideSnapshots: baseInspectionInput.roundSideSnapshots.map((snapshot) => ({
+        ...(snapshot as ParserRecord),
+        players: [
+          ...((snapshot as ParserRecord).players as ParserRecord[]),
+          {
+            slot: extra.slot,
+            steamid: extra.steamid,
+            name: extra.name,
+            side: extra.side,
+          },
+        ],
+      })),
+    } as DemoParserInspectionInput;
+
+    expect(() => buildDemoImportInspection(input)).toThrow(DemoRosterRecoveryError);
+    try {
+      buildDemoImportInspection(input);
+    } catch (error) {
+      expect(error).toMatchObject({
+        canConfirm: true,
+        candidateIdentityIds: [
+          ...players.slice(1).map((player) => player.steamid),
+          extra.steamid,
+        ],
+        unresolvedIdentityIds: [players[0].steamid],
+      });
+    }
   });
 
   it("accepts an explicit roster confirmation when automatic evidence remains unresolved", () => {

@@ -11,6 +11,7 @@ import type {
   DemoImportClientLike,
   DemoImportProgress,
 } from "@/lib/demoImportClient";
+import { DemoRosterRecoveryError } from "@/domain/demoImportErrors";
 
 const SHA = "B".repeat(64);
 
@@ -106,6 +107,7 @@ function makeClient(
   const { inspection, normalizedMatchState } = makeData(mapName);
   return {
     load: vi.fn(async () => ({ inspection, mode: "browser-local" as const })),
+    confirmRoster: vi.fn(async () => ({ inspection, mode: "browser-local" as const })),
     select: vi.fn(async () => {
       onProgress?.({
         status: "parsing",
@@ -176,6 +178,7 @@ describe("DemoImportScreen", () => {
     const user = userEvent.setup();
     const client: DemoImportClientLike = {
       load: vi.fn(async () => { throw new Error("这场 Demo 当前无法读取"); }),
+      confirmRoster: vi.fn(),
       select: vi.fn(),
       reset: vi.fn(),
       cancel: vi.fn(),
@@ -184,6 +187,60 @@ describe("DemoImportScreen", () => {
     await user.upload(screen.getByTestId("demo-import-input"), new File([new Uint8Array(15)], "broken.dem"));
     expect(await screen.findByRole("alert")).toHaveTextContent("这场 Demo 当前无法读取");
     expect(screen.queryByText(/Lite2|G2 vs Team Spirit/)).not.toBeInTheDocument();
+  });
+
+  it("shows unresolved identities and submits an explicit ten-player roster", async () => {
+    const user = userEvent.setup();
+    const { inspection } = makeData();
+    const identityOptions = Array.from({ length: 12 }, (_, index) => ({
+      id: String(index + 1),
+      name: `parser-player-${index + 1}`,
+      slot: index,
+      directEvidenceReferenceCount: index < 10 ? 1 : 0,
+      directEvidenceKinds: index < 10 ? ["shots"] : [],
+      roundSideEvidenceRoundCount: 1,
+    }));
+    const recoveryError = new DemoRosterRecoveryError(
+      "当前 parser identities 中存在未决身份，请确认本次比赛的 10 人 roster。",
+      {
+        canConfirm: true,
+        candidateIdentityIds: identityOptions.slice(0, 10).map((identity) => identity.id),
+        unresolvedIdentityIds: identityOptions.slice(10).map((identity) => identity.id),
+        identityOptions,
+      },
+    );
+    const confirmRoster = vi.fn(async () => ({
+      inspection,
+      mode: "browser-local" as const,
+    }));
+    const client: DemoImportClientLike = {
+      load: vi.fn(async () => {
+        throw recoveryError;
+      }),
+      confirmRoster,
+      select: vi.fn(),
+      reset: vi.fn(),
+      cancel: vi.fn(),
+    };
+
+    render(<DemoImportScreen clientFactory={() => client} />);
+    await user.upload(
+      screen.getByTestId("demo-import-input"),
+      new File([new Uint8Array(15)], "ambiguous.dem"),
+    );
+
+    expect(await screen.findByTestId("demo-roster-confirmation")).toBeInTheDocument();
+    expect(screen.getByText("parser-player-11")).toBeInTheDocument();
+    expect(screen.getByText("parser-player-12")).toBeInTheDocument();
+    expect(screen.getByTestId("demo-roster-confirm")).toBeEnabled();
+
+    await user.click(screen.getByTestId("demo-roster-confirm"));
+
+    await waitFor(() => expect(confirmRoster).toHaveBeenCalledTimes(1));
+    expect(confirmRoster).toHaveBeenCalledWith({
+      matchRosterIds: Array.from({ length: 10 }, (_, index) => String(index + 1)),
+    });
+    expect(await screen.findByTestId("demo-import-inspection")).toBeInTheDocument();
   });
 
   it("offers only the map-matched Ancient radar after Ancient state recovery", async () => {

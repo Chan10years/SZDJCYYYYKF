@@ -19,6 +19,8 @@ import {
   DemoImportFailure,
   DemoParseError,
   DemoParserRuntimeError,
+  DemoRosterRecoveryError,
+  DemoRosterValidationError,
   type DemoImportFailureKind,
 } from "@/domain/demoImportErrors";
 import { NormalizedMatchStateSchema } from "@/domain/normalizedMatchState";
@@ -82,7 +84,7 @@ export type DemoImportClientOptions = {
 
 export type DemoImportClientLike = Pick<
   DemoImportClient,
-  "load" | "select" | "reset" | "cancel"
+  "load" | "confirmRoster" | "select" | "reset" | "cancel"
 >;
 
 type LoadedDemo = {
@@ -92,6 +94,12 @@ type LoadedDemo = {
   baseInput: DemoParserInspectionInput;
   worker: DemoImportWorkerLike;
   rosterResolutionOptions: DemoImportRosterResolutionOptions;
+};
+
+type PendingRosterConfirmation = {
+  file: File;
+  baseInput: DemoParserInspectionInput;
+  worker: DemoImportWorkerLike;
 };
 
 export class LocalParserUnsupportedError extends DemoParserRuntimeError {
@@ -257,6 +265,7 @@ export class DemoImportClient {
   private readonly workerTimeoutMs: number;
   private readonly onProgress: (progress: DemoImportProgress) => void;
   private loadedDemo: LoadedDemo | null = null;
+  private pendingRosterConfirmation: PendingRosterConfirmation | null = null;
   private activeWorker: DemoImportWorkerLike | null = null;
   private generation = 0;
   private pendingReject: ((error: Error) => void) | null = null;
@@ -281,6 +290,7 @@ export class DemoImportClient {
       mode: "browser-local",
     });
     let worker: DemoImportWorkerLike | null = null;
+    let baseInput: DemoParserInspectionInput | null = null;
     try {
       worker = this.workerFactory();
       this.activeWorker = worker;
@@ -307,22 +317,9 @@ export class DemoImportClient {
         [buffer],
       );
       const message = await resultPromise;
-      const baseInput = workerBaseInput(message, file);
+      baseInput = workerBaseInput(message, file);
       const inspection = buildDemoImportInspection(baseInput, options);
-      this.loadedDemo = {
-        file,
-        inspection,
-        mode: "browser-local",
-        baseInput,
-        worker,
-        rosterResolutionOptions: inspection.rosterResolution.mode === "user-confirmed"
-          ? {
-              rosterConfirmation: {
-                matchRosterIds: [...inspection.rosterResolution.matchRosterIds],
-              },
-            }
-          : {},
-      };
+      this.storeLoadedDemo(file, baseInput, worker, inspection);
       this.activeWorker = worker;
       this.emit({
         status: "ready",
@@ -334,10 +331,62 @@ export class DemoImportClient {
       if (error instanceof DemoImportCancelledError) {
         throw error;
       }
-      worker?.terminate();
-      if (this.activeWorker === worker) {
-        this.activeWorker = null;
+      const parserError = this.asParserError(error);
+      if (
+        parserError instanceof DemoRosterRecoveryError &&
+        parserError.canConfirm &&
+        worker !== null &&
+        baseInput !== null
+      ) {
+        // Keep the already parsed browser-local facts and worker alive. The
+        // next explicit confirmation is a per-import roster input; it does
+        // not rewrite the parser result or send the Demo anywhere.
+        this.pendingRosterConfirmation = { file, baseInput, worker };
+        this.activeWorker = worker;
+      } else {
+        worker?.terminate();
+        if (this.activeWorker === worker) {
+          this.activeWorker = null;
+        }
       }
+      this.emit({
+        status: parserError.kind === "parser-runtime" ? "unsupported" : "error",
+        message: parserError.message,
+        mode: "browser-local",
+        failureKind: parserError.kind,
+      });
+      throw parserError;
+    }
+  }
+
+  async confirmRoster(
+    confirmation: DemoImportRosterConfirmation,
+  ): Promise<DemoImportLoadResult> {
+    const pending = this.pendingRosterConfirmation;
+    if (!pending) {
+      throw new DemoRosterValidationError(
+        "当前没有等待确认的 match roster 导入。",
+      );
+    }
+    try {
+      const inspection = buildDemoImportInspection(pending.baseInput, {
+        rosterConfirmation: confirmation,
+      });
+      this.storeLoadedDemo(
+        pending.file,
+        pending.baseInput,
+        pending.worker,
+        inspection,
+      );
+      this.pendingRosterConfirmation = null;
+      this.activeWorker = pending.worker;
+      this.emit({
+        status: "ready",
+        message: "已确认本次导入的 10 人 match roster，选择 Round 与时间截点。",
+        mode: "browser-local",
+      });
+      return { inspection, mode: "browser-local" };
+    } catch (error) {
       const parserError = this.asParserError(error);
       this.emit({
         status: parserError.kind === "parser-runtime" ? "unsupported" : "error",
@@ -435,7 +484,31 @@ export class DemoImportClient {
       this.activeWorker.terminate();
     }
     this.loadedDemo = null;
+    this.pendingRosterConfirmation = null;
     this.activeWorker = null;
+  }
+
+  private storeLoadedDemo(
+    file: File,
+    baseInput: DemoParserInspectionInput,
+    worker: DemoImportWorkerLike,
+    inspection: DemoImportInspection,
+  ): void {
+    this.loadedDemo = {
+      file,
+      inspection,
+      mode: "browser-local",
+      baseInput,
+      worker,
+      rosterResolutionOptions:
+        inspection.rosterResolution.mode === "user-confirmed"
+          ? {
+              rosterConfirmation: {
+                matchRosterIds: [...inspection.rosterResolution.matchRosterIds],
+              },
+            }
+          : {},
+    };
   }
 
   private validateFile(file: File): void {

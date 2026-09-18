@@ -24,7 +24,10 @@ import {
   type ImportedScenarioAuthoring,
 } from "@/domain/importedScenario";
 import type { CallId, ReasonId, Scenario } from "@/domain/types";
-import { DemoImportFailure } from "@/domain/demoImportErrors";
+import {
+  DemoImportFailure,
+  DemoRosterRecoveryError,
+} from "@/domain/demoImportErrors";
 import {
   DemoImportClient,
   DemoImportCancelledError,
@@ -263,6 +266,8 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
     message: "",
   });
   const [inspection, setInspection] = useState<DemoImportInspection | null>(null);
+  const [rosterRecovery, setRosterRecovery] = useState<DemoRosterRecoveryError | null>(null);
+  const [selectedRosterIds, setSelectedRosterIds] = useState<Set<string>>(new Set());
   const [selectedRoundNumber, setSelectedRoundNumber] = useState<number | null>(null);
   const [selectedTick, setSelectedTick] = useState<number>(0);
   const [draft, setDraft] = useState<ScenarioDraft | null>(null);
@@ -283,23 +288,41 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
     return clientRef.current;
   }
 
+  function acceptInspection(result: DemoImportLoadResult): void {
+    const firstRound = result.inspection.rounds[0];
+    setInspection(result.inspection);
+    setRosterRecovery(null);
+    setSelectedRosterIds(new Set());
+    setSelectedRoundNumber(firstRound.number);
+    setSelectedTick(firstRound.minSelectableTick);
+    setAuthoring(initialAuthoringForm());
+  }
+
   async function importFile(file: File | undefined): Promise<void> {
     if (!file) return;
     setError(null);
     setInspection(null);
+    setRosterRecovery(null);
+    setSelectedRosterIds(new Set());
     setDraft(null);
     setPracticeScenario(null);
     setPracticeCurrentState(null);
     setApprovedChecks(new Set());
     try {
       const result: DemoImportLoadResult = await getClient().load(file);
-      const firstRound = result.inspection.rounds[0];
-      setInspection(result.inspection);
-      setSelectedRoundNumber(firstRound.number);
-      setSelectedTick(firstRound.minSelectableTick);
-      setAuthoring(initialAuthoringForm());
+      acceptInspection(result);
     } catch (loadError) {
       if (loadError instanceof DemoImportCancelledError) return;
+      if (loadError instanceof DemoRosterRecoveryError && loadError.canConfirm) {
+        setRosterRecovery(loadError);
+        setSelectedRosterIds(
+          new Set(
+            loadError.candidateIdentityIds.length === 10
+              ? loadError.candidateIdentityIds
+              : [],
+          ),
+        );
+      }
       setProgress({
         status:
           loadError instanceof DemoImportFailure && loadError.kind === "parser-runtime"
@@ -312,6 +335,44 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
           : {}),
       });
       setError(errorMessage(loadError));
+    }
+  }
+
+  function toggleRosterIdentity(id: string): void {
+    setSelectedRosterIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function confirmRosterSelection(): Promise<void> {
+    if (!rosterRecovery) return;
+    if (selectedRosterIds.size !== 10) {
+      setError("请明确选择 10 个本次比赛的参赛玩家。确认后仍会重新验证每个回合的 5 CT / 5 T。 ");
+      return;
+    }
+    setError(null);
+    try {
+      const result = await getClient().confirmRoster({
+        matchRosterIds: [...selectedRosterIds],
+      });
+      acceptInspection(result);
+    } catch (confirmationError) {
+      if (confirmationError instanceof DemoImportCancelledError) return;
+      setProgress({
+        status:
+          confirmationError instanceof DemoImportFailure && confirmationError.kind === "parser-runtime"
+            ? "unsupported"
+            : "error",
+        message: errorMessage(confirmationError),
+        mode: "browser-local",
+        ...(confirmationError instanceof DemoImportFailure
+          ? { failureKind: confirmationError.kind }
+          : {}),
+      });
+      setError(errorMessage(confirmationError));
     }
   }
 
@@ -545,7 +606,7 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
           </div>
         </header>
 
-        {!inspection && (
+        {!inspection && !rosterRecovery && (
           <section
             aria-label="导入 Demo"
             onDragEnter={(event) => { event.preventDefault(); setDragActive(true); }}
@@ -592,6 +653,67 @@ export function DemoImportScreen({ clientFactory }: DemoImportScreenProps) {
         {error && (
           <section role="alert" className="border border-[#d06a6c]/50 bg-[#d06a6c]/10 px-4 py-3 text-sm leading-relaxed text-app-text">
             {error}
+          </section>
+        )}
+
+        {rosterRecovery?.canConfirm && !inspection && (
+          <section
+            data-testid="demo-roster-confirmation"
+            aria-labelledby="demo-roster-confirmation-heading"
+            className="flex flex-col gap-4 border border-[#dfa45b]/50 bg-[#dfa45b]/10 px-4 py-4"
+          >
+            <div className="flex flex-col gap-2">
+              <h2 id="demo-roster-confirmation-heading" className="text-base font-semibold text-app-text">
+                需要确认本次比赛的 10 人 roster
+              </h2>
+              <p className="text-xs leading-relaxed text-app-muted">
+                parser 共返回 {rosterRecovery.identityOptions.length || "若干"} 个 participant identity。当前证据不能在不猜测的情况下区分所有参赛者与 observer / coach 等非参赛身份，请明确选择本次比赛的 10 名选手。下方内容只是 parser 事实摘要，不会改写原始解析结果；确认后仍会独立校验所有 Round 的 5 CT / 5 T 以及所选 tick。
+              </p>
+            </div>
+            {rosterRecovery.identityOptions.length > 0 ? (
+              <div className="grid gap-2 md:grid-cols-2">
+                {rosterRecovery.identityOptions.map((identity) => {
+                  const checked = selectedRosterIds.has(identity.id);
+                  return (
+                    <label
+                      key={identity.id}
+                      className={`flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 text-left ${checked ? "border-app-user bg-app-user-dim" : "border-app-line bg-app-surface"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        data-testid={`demo-roster-identity-${identity.id}`}
+                        checked={checked}
+                        onChange={() => toggleRosterIdentity(identity.id)}
+                        className="mt-0.5 accent-[#dfa45b]"
+                      />
+                      <span className="min-w-0 text-xs">
+                        <span className="block truncate font-medium text-app-text">{identity.name}</span>
+                        <span className="mt-1 block font-mono text-[10px] text-app-muted">
+                          SteamID {identity.id} · parser slot {identity.slot}
+                        </span>
+                        <span className="mt-1 block text-[10px] leading-relaxed text-app-muted">
+                          direct evidence {identity.directEvidenceReferenceCount}（{identity.directEvidenceKinds.join("、") || "无"}） · round side {identity.roundSideEvidenceRoundCount} 回合
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-[#d06a6c]">parser 没有提供可供确认的 identity 列表，无法安全继续。</p>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="font-mono text-xs text-app-muted">已选择 {selectedRosterIds.size} / 10</span>
+              <button
+                type="button"
+                data-testid="demo-roster-confirm"
+                disabled={selectedRosterIds.size !== 10 || loading}
+                onClick={() => void confirmRosterSelection()}
+                className="h-10 rounded-md bg-app-text px-5 text-xs font-medium text-app-bg disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                确认这 10 人并继续
+              </button>
+            </div>
           </section>
         )}
 
