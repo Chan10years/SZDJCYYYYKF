@@ -916,6 +916,53 @@ describe("demoparser2 output adapter", () => {
     expect(state.players).toHaveLength(10);
   });
 
+  it("marks the score unavailable when round-end game time precedes freeze-end", () => {
+    const state = buildDemoImportNormalizedState(
+      historicalSelectionInput([1, 2, 3], {
+        roundEndEvents: [
+          { round: 1, tick: 9000, game_time: 101, winner: "T" },
+          { round: 2, tick: 19000, game_time: 390, winner: "CT" },
+          { round: 3, tick: 29000, game_time: 540, winner: "T" },
+        ],
+      }),
+    );
+
+    expect(state.round.score).toEqual({ "T side": null, "CT side": null });
+    expect(state.players).toHaveLength(10);
+  });
+
+  it("marks the score unavailable when round-end tick precedes freeze-end", () => {
+    const state = buildDemoImportNormalizedState(
+      historicalSelectionInput([1, 2, 3], {
+        roundEndEvents: [
+          { round: 1, tick: 1100, game_time: 103, winner: "T" },
+          { round: 2, tick: 19000, game_time: 390, winner: "CT" },
+          { round: 3, tick: 29000, game_time: 540, winner: "T" },
+        ],
+      }),
+    );
+
+    expect(state.round.score).toEqual({ "T side": null, "CT side": null });
+    expect(state.players).toHaveLength(10);
+  });
+
+  it("marks the score unavailable when a round-end tick exceeds its round boundary", () => {
+    const state = buildDemoImportNormalizedState(
+      historicalSelectionInput([1, 2, 2, 3], {
+        roundEndEvents: [
+          { round: 1, tick: 9000, game_time: 240, winner: "T" },
+          { round: 2, tick: 19000, game_time: 390, winner: "CT" },
+          // This event is after R2's validated end tick and cannot extend it.
+          { round: 2, tick: 20000, game_time: 390, winner: "CT" },
+          { round: 3, tick: 29000, game_time: 540, winner: "T" },
+        ],
+      }),
+    );
+
+    expect(state.round.score).toEqual({ "T side": null, "CT side": null });
+    expect(state.players).toHaveLength(10);
+  });
+
   it("rejects conflicting round-end winners instead of counting an arbitrary result", () => {
     expect(() =>
       buildDemoImportNormalizedState(

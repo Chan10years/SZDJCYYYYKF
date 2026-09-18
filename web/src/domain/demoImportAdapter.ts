@@ -690,6 +690,12 @@ function findRoundForRoundEndEvent(
   ) {
     return null;
   }
+  if (
+    event.tick < tickRound.freezeEndTick ||
+    event.gameTime < tickRound.freezeEndGameTime
+  ) {
+    return null;
+  }
   return tickRound;
 }
 
