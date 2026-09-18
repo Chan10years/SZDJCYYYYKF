@@ -864,6 +864,58 @@ describe("demoparser2 output adapter", () => {
     );
   });
 
+  it("marks the score unavailable when a historical round number conflicts with its event time", () => {
+    const state = buildDemoImportNormalizedState(
+      historicalSelectionInput([1, 2, 3], {
+        roundEndEvents: [
+          { round: 1, tick: 9000, game_time: 240, winner: "T" },
+          { round: 2, tick: 19000, game_time: 390, winner: "CT" },
+          // This tick is in the gap after R2 and before R3. It must not be
+          // rescued by the stale round number R1.
+          { round: 1, tick: 20000, game_time: 405, winner: "T" },
+          { round: 3, tick: 29000, game_time: 540, winner: "T" },
+        ],
+      }),
+    );
+
+    expect(state.round.score).toEqual({ "T side": null, "CT side": null });
+    expect(state.players).toHaveLength(10);
+  });
+
+  it("does not attribute a stale historical round number to a later timed round", () => {
+    const state = buildDemoImportNormalizedState(
+      historicalSelectionInput([1, 2, 3], {
+        roundEndEvents: [
+          { round: 1, tick: 9000, game_time: 240, winner: "T" },
+          { round: 2, tick: 19000, game_time: 390, winner: "CT" },
+          // The time belongs to R3 even though the declared identity says R1.
+          { round: 1, tick: 25000, game_time: 405, winner: "T" },
+          { round: 3, tick: 29000, game_time: 540, winner: "T" },
+        ],
+      }),
+    );
+
+    expect(state.round.score).toEqual({ "T side": null, "CT side": null });
+    expect(state.players).toHaveLength(10);
+  });
+
+  it("marks the score unavailable when a historical round-end lacks timing data", () => {
+    const roundEndEvents = (
+      historicalSelectionInput([1, 2, 3]).roundEndEvents as ParserRecord[]
+    ).map((event, index) => {
+      if (index !== 1) return event;
+      const withoutGameTime = { ...event };
+      delete withoutGameTime.game_time;
+      return withoutGameTime;
+    });
+    const state = buildDemoImportNormalizedState(
+      historicalSelectionInput([1, 2, 3], { roundEndEvents }),
+    );
+
+    expect(state.round.score).toEqual({ "T side": null, "CT side": null });
+    expect(state.players).toHaveLength(10);
+  });
+
   it("rejects conflicting round-end winners instead of counting an arbitrary result", () => {
     expect(() =>
       buildDemoImportNormalizedState(
@@ -879,7 +931,7 @@ describe("demoparser2 output adapter", () => {
           roundSideSnapshots: baseInspectionInput.roundSideSnapshots,
           roundEndEvents: [
             { round: 18, tick: 9000, game_time: 240, winner: "T" },
-            { round: 18, tick: 9001, game_time: 240.1, winner: "CT" },
+            { round: 18, tick: 9000, game_time: 240, winner: "CT" },
           ],
         }),
       ),

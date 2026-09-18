@@ -74,6 +74,13 @@ type RoundEvent = ParserRecord & {
   gameTime: number;
 };
 
+type RoundEndEvent = ParserRecord & {
+  tick: number | null;
+  roundNumber: number | null;
+  parserRound: number | null;
+  gameTime: number | null;
+};
+
 type Header = {
   mapName: string;
   demoVersion: string;
@@ -415,6 +422,23 @@ function normalizeEvent(
   };
 }
 
+function normalizeRoundEndEvent(record: ParserRecord): RoundEndEvent {
+  return {
+    ...record,
+    tick: readNumber(record, ["tick"], "round_end.tick", {
+      required: false,
+      integer: true,
+    }),
+    gameTime: readNumber(
+      record,
+      ["game_time", "gameTime"],
+      "round_end.game_time",
+      { required: false },
+    ),
+    ...readEventRound(record),
+  };
+}
+
 function inferTickrate(roundStarts: readonly RoundEvent[]): number {
   const samples: number[] = [];
   for (let index = 1; index < roundStarts.length; index += 1) {
@@ -441,11 +465,11 @@ function inferTickrate(roundStarts: readonly RoundEvent[]): number {
   ) / 100;
 }
 
-function firstEventBetween(
-  events: readonly RoundEvent[],
+function firstEventBetween<T extends { tick: number }>(
+  events: readonly T[],
   lowerExclusive: number,
   upperExclusive: number,
-): RoundEvent | null {
+): T | null {
   return (
     events.find(
       (event) =>
@@ -454,8 +478,10 @@ function firstEventBetween(
   );
 }
 
-function dedupeBoundaryEvents(events: readonly RoundEvent[]): RoundEvent[] {
-  const deduped: RoundEvent[] = [];
+function dedupeBoundaryEvents<
+  T extends { tick: number; roundNumber: number | null },
+>(events: readonly T[]): T[] {
+  const deduped: T[] = [];
   const ordered = [...events].sort((a, b) => a.tick - b.tick);
   for (const event of ordered) {
     const previous = deduped[deduped.length - 1];
@@ -508,7 +534,11 @@ function createRoundDescriptors(
   const ends = dedupeBoundaryEvents(
     asRecords(input.roundEndEvents, "round_end")
       .filter((event) => event.is_warmup_period !== true)
-      .map((event) => normalizeEvent(event, "round_end")),
+      .map(normalizeRoundEndEvent)
+      .filter(
+        (event): event is RoundEndEvent & { tick: number } =>
+          event.tick !== null,
+      ),
   );
 
   if (starts.length === 0 || freezes.length === 0) {
@@ -594,6 +624,73 @@ function findRoundForTick(
     }
   }
   return null;
+}
+
+function findRoundForRoundEndTick(
+  rounds: readonly DemoImportRound[],
+  tick: number,
+): DemoImportRound | null {
+  for (let index = rounds.length - 1; index >= 0; index -= 1) {
+    const round = rounds[index];
+    const nextRound = rounds[index + 1];
+    if (tick < round.startTick) {
+      continue;
+    }
+    if (round.endTick !== null) {
+      if (tick <= round.endTick) {
+        return round;
+      }
+      continue;
+    }
+    const upperBound = nextRound?.startTick ?? Number.POSITIVE_INFINITY;
+    if (tick < upperBound) {
+      return round;
+    }
+  }
+  return null;
+}
+
+function findRoundForRoundEndGameTime(
+  rounds: readonly DemoImportRound[],
+  gameTime: number,
+): DemoImportRound | null {
+  for (let index = rounds.length - 1; index >= 0; index -= 1) {
+    const round = rounds[index];
+    const nextRound = rounds[index + 1];
+    if (gameTime < round.startGameTime) {
+      continue;
+    }
+    if (round.endGameTime !== null) {
+      if (gameTime <= round.endGameTime) {
+        return round;
+      }
+      continue;
+    }
+    const upperBound = nextRound?.startGameTime ?? Number.POSITIVE_INFINITY;
+    if (gameTime < upperBound) {
+      return round;
+    }
+  }
+  return null;
+}
+
+function findRoundForRoundEndEvent(
+  rounds: readonly DemoImportRound[],
+  event: RoundEndEvent,
+): DemoImportRound | null {
+  if (event.tick === null || event.gameTime === null) {
+    return null;
+  }
+  const tickRound = findRoundForRoundEndTick(rounds, event.tick);
+  const gameTimeRound = findRoundForRoundEndGameTime(rounds, event.gameTime);
+  if (
+    !tickRound ||
+    !gameTimeRound ||
+    tickRound.number !== gameTimeRound.number
+  ) {
+    return null;
+  }
+  return tickRound;
 }
 
 function buildInspectionMarkers(
@@ -1613,15 +1710,26 @@ function buildScore(
     if (record.is_warmup_period === true) {
       continue;
     }
-    const event = normalizeEvent(record, "round_end");
-    const temporalRound = findRoundForTick(rounds, event.tick);
-    const eventRoundNumber = temporalRound?.number ?? event.roundNumber;
-    if (eventRoundNumber === null) {
-      if (event.tick < selectedRound.startTick) {
-        hasUnresolvedRoundEnd = true;
-      }
+    const event = normalizeRoundEndEvent(record);
+    const temporalRound = findRoundForRoundEndEvent(rounds, event);
+    const declaredHistorical =
+      event.roundNumber !== null && event.roundNumber < selectedRound.number;
+    const tickBeforeSelected =
+      event.tick === null || event.tick < selectedRound.startTick;
+    if (!declaredHistorical && !tickBeforeSelected) {
       continue;
     }
+    if (
+      event.tick === null ||
+      event.gameTime === null ||
+      !temporalRound ||
+      (event.roundNumber !== null &&
+        event.roundNumber !== temporalRound.number)
+    ) {
+      hasUnresolvedRoundEnd = true;
+      continue;
+    }
+    const eventRoundNumber = temporalRound.number;
     if (eventRoundNumber >= selectedRound.number) {
       continue;
     }
