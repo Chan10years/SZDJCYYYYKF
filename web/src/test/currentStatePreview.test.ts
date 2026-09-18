@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { realScenarios } from "@/data/scenarios.real";
+import normalizedMatchState from "@/data/realMatch/lite2-g2-spirit-r34.json";
 import overpassState from "@/data/realMatch/g3-g2-spirit-m1-overpass-r10.json";
 import dust2State from "@/data/realMatch/g3-g2-spirit-m2-dust2-r10.json";
 
@@ -17,6 +18,26 @@ async function loadFixture() {
   } catch {
     return null;
   }
+}
+
+function plantedFixture() {
+  return {
+    ...normalizedMatchState,
+    bomb: {
+      ...normalizedMatchState.bomb,
+      status: "planted" as const,
+      carrierId: null,
+      carrierName: null,
+      rawState: { isPlanted: true, isDropped: false },
+    },
+    time: {
+      ...normalizedMatchState.time,
+      display: "下包后 0:02",
+      semantics: "post_plant_elapsed" as const,
+      remainingSeconds: null,
+      postPlantElapsedSeconds: 2,
+    },
+  };
 }
 
 describe("current-state Tactical Preview adapter", () => {
@@ -65,6 +86,39 @@ describe("current-state Tactical Preview adapter", () => {
       carrierId: null,
       carrierName: null,
     });
+  });
+
+  it("hides plant-derived time together with C4 when the perspective is hidden", async () => {
+    const adapter = await loadAdapter();
+    expect(adapter).not.toBeNull();
+    if (!adapter) return;
+
+    const fixture = plantedFixture();
+    const preview = adapter.buildCurrentStatePreview(fixture, {
+      visiblePlayerIds: fixture.players
+        .filter((player) => player.side === "T")
+        .map((player) => player.id),
+      bombVisibility: "hidden",
+    });
+
+    expect(preview.timeLabel).toBe("时间未知");
+    expect(preview.timeLabel).not.toContain("下包");
+    expect(preview.bomb.status).toBe("unavailable");
+  });
+
+  it("preserves plant-derived time when the perspective confirms C4 visibility", async () => {
+    const adapter = await loadAdapter();
+    expect(adapter).not.toBeNull();
+    if (!adapter) return;
+
+    const fixture = plantedFixture();
+    const preview = adapter.buildCurrentStatePreview(fixture, {
+      visiblePlayerIds: fixture.players.map((player) => player.id),
+      bombVisibility: "confirmed",
+    });
+
+    expect(preview.timeLabel).toBe("下包后 0:02");
+    expect(preview.bomb.status).toBe("planted");
   });
 
   it("does not mutate authored Scenario preview semantics", async () => {

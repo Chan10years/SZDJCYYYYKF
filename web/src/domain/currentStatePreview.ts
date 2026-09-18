@@ -1,4 +1,5 @@
 import {
+  getObservableTimeLabel,
   parseNormalizedMatchState,
   type NormalizedMatchState,
 } from "./normalizedMatchState";
@@ -106,6 +107,10 @@ export function buildCurrentStatePreview(
     rawBomb.carrierId === null ||
     visiblePlayerIds === null ||
     visiblePlayerIds.has(rawBomb.carrierId);
+  const timeLabel = getObservableTimeLabel(
+    state.time,
+    visibility?.bombVisibility ?? "confirmed",
+  );
   return {
     kind: "current-match-state",
     map: state.map.name,
@@ -116,7 +121,7 @@ export function buildCurrentStatePreview(
     round: state.round.number,
     parserRound: state.round.parserRound,
     tick: state.tick,
-    timeLabel: state.time.display,
+    timeLabel,
     score: state.round.score,
     players: players.map((player) => {
       const position = worldToNormalizedPosition(player.worldPosition, state.map.overview);

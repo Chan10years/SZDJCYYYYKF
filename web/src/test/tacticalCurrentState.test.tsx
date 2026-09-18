@@ -6,9 +6,28 @@ import { buildCurrentStatePreview } from "@/domain/currentStatePreview";
 import { approveScenarioDraftForPractice, buildScenarioDraft, SCENARIO_DRAFT_QA_CHECK_IDS } from "@/domain/scenarioDraft";
 import { TacticalPreview } from "@/components/tactical/TacticalPreview";
 
+const currentState = buildCurrentStatePreview(normalizedMatchState);
+
+const plantedState = {
+  ...normalizedMatchState,
+  bomb: {
+    ...normalizedMatchState.bomb,
+    status: "planted" as const,
+    carrierId: null,
+    carrierName: null,
+    rawState: { isPlanted: true, isDropped: false },
+  },
+  time: {
+    ...normalizedMatchState.time,
+    display: "下包后 0:02",
+    semantics: "post_plant_elapsed" as const,
+    remainingSeconds: null,
+    postPlantElapsedSeconds: 2,
+  },
+};
+
 describe("TacticalPreview current-match-state mode", () => {
   it("renders real markers without routes, zones, metrics, or authored legend", () => {
-    const currentState = buildCurrentStatePreview(normalizedMatchState);
     const { container, getByText } = render(
       <TacticalPreview
         scenario={realScenarios[1]}
@@ -48,5 +67,24 @@ describe("TacticalPreview current-match-state mode", () => {
     expect(container.querySelector('g[transform]')?.getAttribute("transform")).toBe(
       "matrix(1 0 0 0.75 0 12.5)",
     );
+  });
+
+  it("does not expose plant-derived time in the current-state map label when C4 is hidden", () => {
+    const currentStateWithHiddenBomb = buildCurrentStatePreview(plantedState, {
+      visiblePlayerIds: plantedState.players
+        .filter((player) => player.side === "T")
+        .map((player) => player.id),
+      bombVisibility: "hidden",
+    });
+    const { container } = render(
+      <TacticalPreview
+        scenario={realScenarios[1]}
+        call="A"
+        currentState={currentStateWithHiddenBomb}
+      />,
+    );
+
+    expect(container.textContent).toContain("时间未知");
+    expect(container.textContent).not.toContain("下包后 0:02");
   });
 });

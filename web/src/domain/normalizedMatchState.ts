@@ -378,6 +378,25 @@ export function formatTimeForFact(time: NormalizedMatchState["time"]): string {
     : time.display;
 }
 
+/**
+ * Return only the time label that the confirmed observable boundary permits.
+ * The machine-only Draft keeps the complete parser-derived time; imported
+ * practice and current-state previews must not expose post-plant elapsed time
+ * when Human QA has not confirmed C4 visibility.
+ */
+export function getObservableTimeLabel(
+  time: NormalizedMatchState["time"],
+  bombVisibility: "hidden" | "confirmed",
+): string {
+  if (
+    bombVisibility === "hidden" &&
+    time.semantics === "post_plant_elapsed"
+  ) {
+    return "时间未知";
+  }
+  return time.display;
+}
+
 export function parseNormalizedMatchState(input: unknown): NormalizedMatchState {
   return NormalizedMatchStateSchema.parse(input);
 }

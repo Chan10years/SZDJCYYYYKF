@@ -13,6 +13,7 @@ import {
   type ScenarioDraft,
   type ScenarioDraftQaCheckId,
 } from "./scenarioDraft";
+import { getObservableTimeLabel } from "./normalizedMatchState";
 import type { Scenario } from "./types";
 
 const HumanTextSchema = z.string().trim().min(1).max(500);
@@ -85,6 +86,10 @@ function buildImportedFacts(
   const visiblePlayers = state.players.filter((player) =>
     visiblePlayerIds.has(player.id),
   );
+  const observableTime = getObservableTimeLabel(
+    state.time,
+    authoring.perspective.bombVisibility,
+  );
   const visibleAlive = visiblePlayers.filter((player) => player.alive).length;
   const bombDetail =
     authoring.perspective.bombVisibility === "confirmed"
@@ -105,7 +110,7 @@ function buildImportedFacts(
     },
     {
       label: "截点",
-      detail: `Round ${state.round.number} · Tick ${state.tick} · ${state.time.display}`,
+      detail: `Round ${state.round.number} · Tick ${state.tick} · ${observableTime}`,
     },
     {
       label: "存活",
@@ -144,6 +149,10 @@ export function buildImportedPracticeScenario(
   const authoring = ImportedScenarioAuthoringSchema.parse(authoringInput);
   assertAllQaChecksApproved(approvedCheckIds);
   const state = draft.normalizedMatchState;
+  const observableTime = getObservableTimeLabel(
+    state.time,
+    authoring.perspective.bombVisibility,
+  );
   const visiblePlayerIds = new Set(authoring.perspective.visiblePlayerIds);
   const visiblePlayers = state.players.filter((player) =>
     visiblePlayerIds.has(player.id),
@@ -185,7 +194,7 @@ export function buildImportedPracticeScenario(
     ...(authoring.mapAsset ? { mapBase: authoring.mapAsset } : {}),
     situation: {
       phase: `Round ${state.round.number} · parser round ${state.round.parserRound}`,
-      time: state.time.display,
+      time: observableTime,
       alive: `${visiblePlayers.filter((player) => player.alive).length} ${authoring.perspective.side} · 仅该 perspective 可见`,
       objective: authoring.objectiveFraming,
       facts: buildImportedFacts(state, authoring, visiblePlayerIds),

@@ -62,6 +62,24 @@ const authoring: ImportedScenarioAuthoring = {
   mapAsset: null,
 };
 
+const plantedState = {
+  ...normalizedMatchState,
+  bomb: {
+    ...normalizedMatchState.bomb,
+    status: "planted" as const,
+    carrierId: null,
+    carrierName: null,
+    rawState: { isPlanted: true, isDropped: false },
+  },
+  time: {
+    ...normalizedMatchState.time,
+    display: "下包后 0:02",
+    semantics: "post_plant_elapsed" as const,
+    remainingSeconds: null,
+    postPlantElapsedSeconds: 2,
+  },
+};
+
 describe("imported machine-only Draft promotion", () => {
   it("requires human-authored semantic content and preserves it in practice", () => {
     const draft = buildScenarioDraft(normalizedMatchState);
@@ -108,6 +126,39 @@ describe("imported machine-only Draft promotion", () => {
         SCENARIO_DRAFT_QA_CHECK_IDS,
       ),
     ).toThrow(/machine-only/);
+  });
+
+  it("does not expose plant-derived time when Human QA keeps C4 hidden", () => {
+    const draft = buildScenarioDraft(plantedState);
+    const scenario = buildImportedPracticeScenario(
+      draft,
+      authoring,
+      SCENARIO_DRAFT_QA_CHECK_IDS,
+    );
+    const serializedScenario = JSON.stringify(scenario);
+
+    expect(scenario.situation.time).toBe("时间未知");
+    expect(scenario.situation.facts.find((fact) => fact.label === "截点")?.detail).toContain(
+      "时间未知",
+    );
+    expect(serializedScenario).not.toContain("下包后 0:02");
+  });
+
+  it("preserves plant-derived time after Human QA confirms C4 visibility", () => {
+    const draft = buildScenarioDraft(plantedState);
+    const scenario = buildImportedPracticeScenario(
+      draft,
+      {
+        ...authoring,
+        perspective: { ...authoring.perspective, bombVisibility: "confirmed" },
+      },
+      SCENARIO_DRAFT_QA_CHECK_IDS,
+    );
+
+    expect(scenario.situation.time).toBe("下包后 0:02");
+    expect(scenario.situation.facts.find((fact) => fact.label === "截点")?.detail).toContain(
+      "下包后 0:02",
+    );
   });
 
   it("rejects empty semantic content instead of manufacturing a Scenario", () => {
